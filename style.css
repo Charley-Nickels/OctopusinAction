@@ -15,6 +15,10 @@
   box-sizing: border-box;
 }
 
+.hidden {
+  display: none !important;
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -47,6 +51,7 @@ body {
   font-weight: 700;
   margin-right: 12px;
   letter-spacing: 0.02em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
 #hud .controls {
@@ -93,9 +98,11 @@ body {
 
 #stats {
   margin-left: auto;
-  font-size: 1.02rem;
+  font-size: 1.08rem;
+  font-weight: 600;
   line-height: 1.35;
   opacity: 0.98;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.65);
   transition: opacity 120ms ease;
 }
 
@@ -109,6 +116,7 @@ body {
   border-radius: 14px;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
   background: linear-gradient(160deg, rgba(12, 35, 46, 0.9), rgba(8, 22, 29, 0.92));
+  position: relative;
 }
 
 #game {
@@ -119,6 +127,21 @@ body {
   height: 432px;
   border-radius: 14px;
   display: block;
+}
+
+#greetHint {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(8, 20, 28, 0.8);
+  color: #e7f4ff;
+  font-weight: 600;
+  font-size: 0.95rem;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(79, 176, 227, 0.3);
+  letter-spacing: 0.01em;
 }
 
 #overlay {
