@@ -23,9 +23,10 @@
 const TILE_SIZE = 48;
 const GREET_RADIUS = 40;
 const NPC_RADIUS = 7;
-const MAYOR_BODY = "#c8a2dd";
-const MAYOR_SUIT = "#a16bc0";
-const MAYOR_ACCENT = "#8550a8";
+const MAYOR_BODY = "#cbb3f2";
+const MAYOR_SUIT = "#b377c9";
+const MAYOR_ACCENT = "#f19db8";
+const MAYOR_CORAL = "#f6b3c7";
 const MAYOR_HAT = "#6b3d8a";
 const MAYOR_MONOCLE = "#f2e7c6";
 const MAYOR_GLOW = "rgba(200, 162, 221, 0.26)";
@@ -81,8 +82,10 @@ const buildingPalette = {
   civicAccent: "#d6e2ef",
   shopWall: "#9b7953",
   shopRoof: "#5e4936",
+  shopAccent: "#f1c07b",
   houseWall: "#759461",
   houseRoof: "#4c5d3d",
+  houseAccent: "#dbe7c8",
   marketWall: "#a56b7c",
   marketRoof: "#5f3b47",
   shadow: "rgba(0, 0, 0, 0.18)",
@@ -114,6 +117,8 @@ const fxConfig = {
 };
 
 const chatBubbles = [];
+
+const npcHighlightRadius = GREET_RADIUS * 1.15;
 
 const movementSmoothingMs = 12;
 const hudFadeDurationMs = 140;
@@ -646,13 +651,14 @@ function findNearbyNpc(radius = GREET_RADIUS) {
 function addChatBubble(npc) {
   const phrases = ["Hey there!", "Nice day in the harbor!", "Busy today?", "Mayor, good to see you!"];
   const text = phrases[Math.floor(Math.random() * phrases.length)];
-  const lifetime = 1600;
+  const lifetime = 2300;
   chatBubbles.push({
     x: npc.x,
     y: npc.y - npc.radius * 1.8,
     text,
     remaining: lifetime,
     total: lifetime,
+    riseRate: 0.014,
   });
 }
 
@@ -782,6 +788,7 @@ function buildBuildings() {
   buildings = [
     {
       key: "city_hall",
+      kind: "cityHall",
       x: Math.floor(gridCols / 2 - 1) * TILE_SIZE,
       y: TILE_SIZE,
       width: TILE_SIZE * 3,
@@ -792,30 +799,47 @@ function buildBuildings() {
     },
     {
       key: "shop",
+      kind: "shop",
       x: TILE_SIZE * 2,
       y: TILE_SIZE * 2,
       width: TILE_SIZE * 2,
       height: TILE_SIZE * 2,
       wall: buildingPalette.shopWall,
       roof: buildingPalette.shopRoof,
+      accent: buildingPalette.shopAccent,
     },
     {
       key: "house1",
+      kind: "house",
       x: TILE_SIZE * 11,
       y: TILE_SIZE * 2,
       width: TILE_SIZE * 2,
       height: TILE_SIZE * 2,
       wall: buildingPalette.houseWall,
       roof: buildingPalette.houseRoof,
+      accent: buildingPalette.houseAccent,
     },
     {
       key: "market",
+      kind: "market",
       x: TILE_SIZE * 3,
       y: TILE_SIZE * 6,
       width: TILE_SIZE * 3,
       height: TILE_SIZE * 2,
       wall: buildingPalette.marketWall,
       roof: buildingPalette.marketRoof,
+      accent: adjustBrightness(buildingPalette.marketWall, 0.12),
+    },
+    {
+      key: "house2",
+      kind: "house",
+      x: TILE_SIZE * 9,
+      y: TILE_SIZE * 6,
+      width: TILE_SIZE * 2,
+      height: TILE_SIZE * 2,
+      wall: adjustBrightness(buildingPalette.houseWall, 0.08),
+      roof: adjustBrightness(buildingPalette.houseRoof, -0.06),
+      accent: adjustBrightness(buildingPalette.houseAccent, -0.04),
     },
   ];
 }
@@ -828,19 +852,30 @@ function buildProps() {
   props = [
     { type: "bench", x: centerPathX - TILE_SIZE * 2, y: centerPathY - half },
     { type: "bench", x: centerPathX + TILE_SIZE * 2, y: centerPathY - half },
+    { type: "bench", x: centerPathX, y: centerPathY + TILE_SIZE * 1.2 },
     { type: "lamp", x: centerPathX - TILE_SIZE * 3, y: centerPathY - TILE_SIZE },
     { type: "lamp", x: centerPathX + TILE_SIZE * 3, y: centerPathY - TILE_SIZE },
+    { type: "lamp", x: TILE_SIZE * 9.2, y: TILE_SIZE * 1.3 },
     { type: "crate", x: TILE_SIZE * 3.2, y: TILE_SIZE * 7 },
     { type: "crate", x: TILE_SIZE * 3.9, y: TILE_SIZE * 7.4 },
     { type: "planter", x: TILE_SIZE * 1.5, y: TILE_SIZE * 1.2 },
+    { type: "planter", x: TILE_SIZE * 4.6, y: TILE_SIZE * 2.4 },
     { type: "planter", x: TILE_SIZE * 11.5, y: TILE_SIZE * 1.2 },
+    { type: "planter", x: TILE_SIZE * 8.8, y: TILE_SIZE * 2.1 },
+    { type: "planter", x: TILE_SIZE * 9.8, y: TILE_SIZE * 6.4 },
     { type: "sign", x: TILE_SIZE * 1.4, y: TILE_SIZE * (gridRows - 2) + half * 0.4 },
     { type: "barrel", x: TILE_SIZE * 2.3, y: TILE_SIZE * (gridRows - 2) + half * 0.1 },
     { type: "barrel", x: TILE_SIZE * 2.8, y: TILE_SIZE * (gridRows - 2) + half * 0.45 },
     { type: "coral", x: TILE_SIZE * 1.2, y: TILE_SIZE * (gridRows - 2) + half * 0.2 },
     { type: "coral", x: TILE_SIZE * 2.0, y: TILE_SIZE * (gridRows - 2) - half * 0.2 },
+    { type: "coral", x: TILE_SIZE * 0.9, y: TILE_SIZE * (gridRows - 1) - half * 0.5 },
+    { type: "coral", x: TILE_SIZE * 3.4, y: TILE_SIZE * (gridRows - 2) - half * 0.3 },
     { type: "junk", x: TILE_SIZE * 1.6, y: TILE_SIZE * (gridRows - 1) - half * 0.3 },
     { type: "junk", x: TILE_SIZE * 2.2, y: TILE_SIZE * (gridRows - 1) - half * 0.6 },
+    { type: "junk", x: TILE_SIZE * 3.0, y: TILE_SIZE * (gridRows - 1) - half * 0.45 },
+    { type: "pebble", x: TILE_SIZE * 1.1, y: TILE_SIZE * (gridRows - 1) - half * 0.15 },
+    { type: "pebble", x: TILE_SIZE * 2.7, y: TILE_SIZE * (gridRows - 1) - half * 0.05 },
+    { type: "pebble", x: TILE_SIZE * 3.6, y: TILE_SIZE * (gridRows - 1) - half * 0.2 },
     { type: "sign", x: TILE_SIZE * 12.6, y: TILE_SIZE * 6.2 },
   ];
 
@@ -924,8 +959,12 @@ function drawTiles() {
 function drawGroundDetails() {
   const ctx = state.ctx;
   if (!ctx) return;
+  const time = (state.lastFrameTimestamp ?? 0) / 1000;
+  const driftX = Math.sin(time * 0.22) * 1.1;
+  const driftY = Math.cos(time * 0.18) * 0.8;
   for (const detail of groundDetails) {
     ctx.save();
+    ctx.translate(driftX, driftY);
     if (detail.type === "pebble") {
       ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
       ctx.globalAlpha = detail.alpha ?? 0.25;
@@ -958,18 +997,28 @@ function drawWaterTile(row, col) {
   const y = row * TILE_SIZE;
   const baseColor = worldTileColors[row][col] ?? tilePalette.waterMid;
   const time = (state.lastFrameTimestamp ?? 0) / 800;
-  const waveOffset = Math.sin(time + col * 0.7 + row * 0.35) * 2;
+  const parallax = Math.sin((state.lastFrameTimestamp ?? 0) / 6400) * 1;
+  const waveOffset = Math.sin(time + col * 0.7 + row * 0.35) * 1.7 + parallax;
 
   ctx.fillStyle = baseColor;
   ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
 
+  const depthGradient = ctx.createLinearGradient(x, y, x, y + TILE_SIZE);
+  depthGradient.addColorStop(0, adjustBrightness(tilePalette.waterLight, 0.04));
+  depthGradient.addColorStop(1, adjustBrightness(baseColor, -0.12));
+  ctx.globalAlpha = 0.22;
+  ctx.fillStyle = depthGradient;
+  ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+  ctx.globalAlpha = 1;
+
   ctx.save();
-  ctx.globalAlpha = 0.18;
+  ctx.globalAlpha = 0.055;
   ctx.fillStyle = tilePalette.waterLight;
-  ctx.fillRect(x, y + TILE_SIZE * 0.25 + waveOffset, TILE_SIZE, 5);
-  ctx.fillRect(x, y + TILE_SIZE * 0.6 - waveOffset, TILE_SIZE, 4);
-  const shimmerOffset = Math.sin((state.lastFrameTimestamp ?? 0) / 700 + col * 0.4 + row * 0.2) * 3;
-  ctx.fillRect(x, y + TILE_SIZE * 0.45 + shimmerOffset, TILE_SIZE, 2);
+  const bandOffset = parallax * 0.5;
+  ctx.fillRect(x, y + TILE_SIZE * 0.25 + waveOffset + bandOffset, TILE_SIZE, 1.8);
+  ctx.fillRect(x, y + TILE_SIZE * 0.6 - waveOffset + bandOffset, TILE_SIZE, 1.1);
+  const shimmerOffset = Math.sin((state.lastFrameTimestamp ?? 0) / 760 + col * 0.4 + row * 0.2) * 1.6 + bandOffset;
+  ctx.fillRect(x, y + TILE_SIZE * 0.45 + shimmerOffset, TILE_SIZE, 0.9);
   ctx.globalAlpha = 1;
 
   const mask = shorelineMask[row][col] ?? 0;
@@ -999,19 +1048,45 @@ function drawBuildings() {
     // steps/platform
     state.ctx.fillStyle = adjustBrightness(accent, 0.05);
     state.ctx.fillRect(b.x - 4, b.y + b.height - stepHeight, b.width + 8, stepHeight);
+    state.ctx.fillStyle = adjustBrightness(accent, -0.12);
+    state.ctx.fillRect(b.x - 4, b.y + b.height - stepHeight + 3, b.width + 8, 4);
 
     // main body
-    state.ctx.fillStyle = wallColor;
+    const wallGradient =
+      b._wallGradient ||
+      (() => {
+        const g = state.ctx.createLinearGradient(b.x, b.y + roofHeight, b.x, b.y + b.height - stepHeight);
+        g.addColorStop(0, adjustBrightness(wallColor, 0.08));
+        g.addColorStop(1, adjustBrightness(wallColor, -0.08));
+        b._wallGradient = g;
+        return g;
+      })();
+    state.ctx.fillStyle = wallGradient;
     state.ctx.fillRect(b.x, b.y + roofHeight, b.width, b.height - roofHeight - stepHeight);
     state.ctx.strokeStyle = adjustBrightness(wallColor, -0.3);
     state.ctx.lineWidth = 2;
     state.ctx.strokeRect(b.x - 1, b.y + roofHeight - 1, b.width + 2, b.height - roofHeight - stepHeight + 2);
+    state.ctx.fillStyle = adjustBrightness(wallColor, -0.22);
+    state.ctx.fillRect(b.x, b.y + b.height - stepHeight - 4, b.width, 3);
 
     // roof bar
-    state.ctx.fillStyle = roofColor;
+    const roofGradient =
+      b._roofGradient ||
+      (() => {
+        const g = state.ctx.createLinearGradient(b.x, b.y, b.x, b.y + roofHeight + 4);
+        g.addColorStop(0, adjustBrightness(roofColor, 0.08));
+        g.addColorStop(1, roofColor);
+        b._roofGradient = g;
+        return g;
+      })();
+    state.ctx.fillStyle = roofGradient;
     state.ctx.fillRect(b.x - 2, b.y, b.width + 4, roofHeight + 4);
-    state.ctx.fillStyle = adjustBrightness(roofColor, 0.12);
+    state.ctx.fillStyle = adjustBrightness(roofColor, 0.16);
     state.ctx.fillRect(b.x, b.y + 2, b.width, 6);
+    state.ctx.fillStyle = adjustBrightness(roofColor, -0.1);
+    state.ctx.fillRect(b.x - 2, b.y + roofHeight - 3, b.width + 4, 5);
+    state.ctx.fillStyle = adjustBrightness(roofColor, -0.2);
+    state.ctx.fillRect(b.x - 2, b.y + roofHeight + 2, b.width + 4, 2);
 
     // windows and crest
     const windowWidth = Math.max(12, b.width * 0.18);
@@ -1040,8 +1115,200 @@ function drawBuildings() {
     state.ctx.fillStyle = adjustBrightness(accent, -0.05);
     state.ctx.fillRect(doorX + doorWidth / 2 - 3, doorY + doorHeight * 0.55, 6, 6);
 
+    state.ctx.fillStyle = adjustBrightness(accent, 0.14);
+    state.ctx.fillRect(b.x - 4, b.y + b.height - stepHeight + 1, b.width + 8, 2);
+    state.ctx.fillStyle = adjustBrightness(accent, -0.08);
+    state.ctx.fillRect(b.x - 4, b.y + b.height - stepHeight + 3, b.width + 8, 2);
+
     state.ctx.fillStyle = accent;
     state.ctx.fillRect(b.x + b.width / 2 - 6, b.y + roofHeight + 2, 12, 14);
+  };
+
+  const drawShopBuilding = (b) => {
+    const roofHeight = b.height * 0.28;
+    const wallColor = b.wall ?? buildingPalette.shopWall;
+    const roofColor = b.roof ?? buildingPalette.shopRoof;
+    const accent = b.accent ?? buildingPalette.shopAccent;
+
+    state.ctx.fillStyle = buildingPalette.shadow;
+    state.ctx.fillRect(b.x + 4, b.y + b.height - 4, b.width - 8, 4);
+
+    // main body
+    const wallGradient =
+      b._wallGradient ||
+      (() => {
+        const g = state.ctx.createLinearGradient(b.x, b.y + roofHeight, b.x, b.y + b.height);
+        g.addColorStop(0, adjustBrightness(wallColor, 0.06));
+        g.addColorStop(1, adjustBrightness(wallColor, -0.1));
+        b._wallGradient = g;
+        return g;
+      })();
+    state.ctx.fillStyle = wallGradient;
+    state.ctx.fillRect(b.x, b.y + roofHeight, b.width, b.height - roofHeight);
+    state.ctx.strokeStyle = adjustBrightness(wallColor, -0.28);
+    state.ctx.strokeRect(b.x - 1, b.y + roofHeight - 1, b.width + 2, b.height - roofHeight + 2);
+    state.ctx.fillStyle = adjustBrightness(wallColor, -0.22);
+    state.ctx.fillRect(b.x, b.y + b.height - 6, b.width, 4);
+    state.ctx.fillStyle = adjustBrightness(wallColor, -0.12);
+    state.ctx.fillRect(b.x, b.y + b.height - 10, b.width, 2);
+
+    // roof slab
+    const roofGradient =
+      b._roofGradient ||
+      (() => {
+        const g = state.ctx.createLinearGradient(b.x, b.y, b.x, b.y + roofHeight + 4);
+        g.addColorStop(0, adjustBrightness(roofColor, 0.12));
+        g.addColorStop(1, roofColor);
+        b._roofGradient = g;
+        return g;
+      })();
+    state.ctx.fillStyle = roofGradient;
+    state.ctx.fillRect(b.x - 1, b.y, b.width + 2, roofHeight + 4);
+    state.ctx.fillStyle = adjustBrightness(roofColor, 0.2);
+    state.ctx.fillRect(b.x, b.y + 3, b.width, 6);
+    state.ctx.fillStyle = adjustBrightness(roofColor, -0.08);
+    state.ctx.fillRect(b.x - 1, b.y + roofHeight, b.width + 2, 3);
+    state.ctx.fillStyle = adjustBrightness(roofColor, -0.16);
+    state.ctx.fillRect(b.x - 1, b.y + roofHeight + 3, b.width + 2, 2);
+
+    // awning stripes
+    const stripeHeight = Math.max(8, roofHeight * 0.55);
+    state.ctx.fillStyle = accent;
+    state.ctx.fillRect(b.x - 2, b.y + roofHeight - stripeHeight / 2, b.width + 4, stripeHeight);
+    state.ctx.fillStyle = adjustBrightness(accent, -0.22);
+    for (let i = 0; i < b.width; i += 10) {
+      state.ctx.fillRect(b.x - 2 + i, b.y + roofHeight - stripeHeight / 2, 5, stripeHeight);
+    }
+
+    // door and window
+    const doorWidth = Math.max(12, b.width * 0.18);
+    const doorHeight = Math.max(16, b.height * 0.38);
+    const doorX = b.x + b.width * 0.12;
+    const doorY = b.y + b.height - doorHeight;
+    state.ctx.fillStyle = adjustBrightness(wallColor, -0.22);
+    state.ctx.fillRect(doorX, doorY, doorWidth, doorHeight);
+    state.ctx.fillStyle = adjustBrightness(accent, -0.05);
+    state.ctx.fillRect(doorX + doorWidth * 0.35, doorY + doorHeight * 0.55, 4, 4);
+
+    const windowWidth = Math.max(14, b.width * 0.32);
+    const windowHeight = windowWidth * 0.6;
+    state.ctx.fillStyle = adjustBrightness(accent, 0.2);
+    state.ctx.fillRect(b.x + b.width - windowWidth - 12, b.y + roofHeight + 8, windowWidth, windowHeight);
+    state.ctx.fillStyle = "rgba(0, 0, 0, 0.14)";
+    state.ctx.fillRect(b.x + b.width - windowWidth - 12, b.y + roofHeight + 8 + windowHeight * 0.35, windowWidth, 2);
+    state.ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
+    state.ctx.fillRect(b.x, b.y + b.height - 6, b.width, 3);
+  };
+
+  const drawHouseBuilding = (b) => {
+    const roofHeight = b.height * 0.4;
+    const wallColor = b.wall ?? buildingPalette.houseWall;
+    const roofColor = b.roof ?? buildingPalette.houseRoof;
+    const accent = b.accent ?? buildingPalette.houseAccent;
+
+    state.ctx.fillStyle = buildingPalette.shadow;
+    state.ctx.fillRect(b.x + 3, b.y + b.height - 3, b.width - 6, 4);
+
+    // roof gable
+    state.ctx.beginPath();
+    state.ctx.moveTo(b.x - 4, b.y + roofHeight);
+    state.ctx.lineTo(b.x + b.width / 2, b.y - 4);
+    state.ctx.lineTo(b.x + b.width + 4, b.y + roofHeight);
+    state.ctx.closePath();
+    state.ctx.fillStyle = roofColor;
+    state.ctx.fill();
+    state.ctx.strokeStyle = adjustBrightness(roofColor, -0.2);
+    state.ctx.stroke();
+    state.ctx.fillStyle = adjustBrightness(roofColor, 0.12);
+    state.ctx.fillRect(b.x - 4, b.y + roofHeight - 3, b.width + 8, 3);
+    state.ctx.fillStyle = adjustBrightness(roofColor, -0.12);
+    state.ctx.fillRect(b.x - 4, b.y + roofHeight - 1, b.width + 8, 2);
+    state.ctx.fillStyle = adjustBrightness(roofColor, -0.18);
+    state.ctx.fillRect(b.x - 4, b.y + roofHeight + 2, b.width + 8, 2);
+
+    // walls
+    const wallGradient =
+      b._wallGradient ||
+      (() => {
+        const g = state.ctx.createLinearGradient(b.x, b.y + roofHeight, b.x, b.y + b.height);
+        g.addColorStop(0, adjustBrightness(wallColor, 0.06));
+        g.addColorStop(1, adjustBrightness(wallColor, -0.08));
+        b._wallGradient = g;
+        return g;
+      })();
+    state.ctx.fillStyle = wallGradient;
+    state.ctx.fillRect(b.x, b.y + roofHeight, b.width, b.height - roofHeight);
+    state.ctx.strokeStyle = adjustBrightness(wallColor, -0.28);
+    state.ctx.strokeRect(b.x - 1, b.y + roofHeight - 1, b.width + 2, b.height - roofHeight + 2);
+    state.ctx.fillStyle = adjustBrightness(wallColor, -0.22);
+    state.ctx.fillRect(b.x, b.y + b.height - 6, b.width, 3);
+
+    // windows & trim
+    const windowSize = Math.max(10, b.width * 0.18);
+    state.ctx.fillStyle = accent;
+    state.ctx.fillRect(b.x + 6, b.y + roofHeight + 8, windowSize, windowSize * 0.8);
+    state.ctx.fillRect(b.x + b.width - windowSize - 6, b.y + roofHeight + 8, windowSize, windowSize * 0.8);
+    state.ctx.fillStyle = adjustBrightness(accent, -0.18);
+    state.ctx.fillRect(b.x, b.y + roofHeight - 2, b.width, 4);
+
+    // door
+    const doorWidth = Math.max(12, b.width * 0.18);
+    const doorHeight = Math.max(18, b.height * 0.36);
+    const doorX = b.x + b.width / 2 - doorWidth / 2;
+    const doorY = b.y + b.height - doorHeight;
+    state.ctx.fillStyle = adjustBrightness(wallColor, -0.2);
+    state.ctx.fillRect(doorX, doorY, doorWidth, doorHeight);
+
+    // chimney
+    state.ctx.fillStyle = adjustBrightness(roofColor, 0.08);
+    state.ctx.fillRect(b.x + b.width * 0.68, b.y + roofHeight - 14, 10, 18);
+  };
+
+  const drawMarketBuilding = (b) => {
+    const roofHeight = b.height * 0.25;
+    const wallColor = b.wall ?? buildingPalette.marketWall;
+    const roofColor = b.roof ?? buildingPalette.marketRoof;
+    const accent = b.accent ?? adjustBrightness(wallColor, 0.1);
+
+    state.ctx.fillStyle = buildingPalette.shadow;
+    state.ctx.fillRect(b.x + 4, b.y + b.height - 4, b.width - 8, 5);
+
+    const wallGradient = state.ctx.createLinearGradient(b.x, b.y + roofHeight, b.x, b.y + b.height);
+    wallGradient.addColorStop(0, adjustBrightness(wallColor, 0.05));
+    wallGradient.addColorStop(1, adjustBrightness(wallColor, -0.08));
+    state.ctx.fillStyle = wallGradient;
+    state.ctx.fillRect(b.x, b.y + roofHeight, b.width, b.height - roofHeight);
+    state.ctx.strokeStyle = adjustBrightness(wallColor, -0.25);
+    state.ctx.strokeRect(b.x - 1, b.y + roofHeight - 1, b.width + 2, b.height - roofHeight + 2);
+    state.ctx.fillStyle = adjustBrightness(wallColor, -0.16);
+    state.ctx.fillRect(b.x, b.y + b.height - 5, b.width, 3);
+
+    const roofGradient = state.ctx.createLinearGradient(b.x, b.y, b.x, b.y + roofHeight + 4);
+    roofGradient.addColorStop(0, adjustBrightness(roofColor, 0.1));
+    roofGradient.addColorStop(1, roofColor);
+    state.ctx.fillStyle = roofGradient;
+    state.ctx.fillRect(b.x - 2, b.y, b.width + 4, roofHeight + 4);
+    state.ctx.fillStyle = adjustBrightness(roofColor, 0.14);
+    state.ctx.fillRect(b.x, b.y + 3, b.width, 6);
+
+    // awning banners
+    const stripeHeight = Math.max(8, roofHeight * 0.6);
+    state.ctx.fillStyle = accent;
+    state.ctx.fillRect(b.x - 2, b.y + roofHeight - stripeHeight / 2, b.width + 4, stripeHeight);
+    state.ctx.fillStyle = adjustBrightness(accent, -0.15);
+    for (let i = 0; i < b.width; i += 12) {
+      state.ctx.fillRect(b.x - 2 + i, b.y + roofHeight - stripeHeight / 2, 6, stripeHeight);
+    }
+
+    // stalls and windows
+    const stallWidth = b.width * 0.3;
+    const stallHeight = b.height * 0.25;
+    state.ctx.fillStyle = adjustBrightness(wallColor, -0.08);
+    state.ctx.fillRect(b.x + b.width * 0.15, b.y + b.height - stallHeight, stallWidth, stallHeight);
+    state.ctx.fillRect(b.x + b.width * 0.55, b.y + b.height - stallHeight, stallWidth, stallHeight);
+
+    state.ctx.fillStyle = adjustBrightness(accent, 0.28);
+    state.ctx.fillRect(b.x + b.width * 0.36, b.y + roofHeight + 8, b.width * 0.18, roofHeight * 0.7);
   };
 
   const drawSimpleBuilding = (b) => {
@@ -1079,10 +1346,23 @@ function drawBuildings() {
   };
 
   for (const b of buildings) {
-    if (b.key === "city_hall") {
-      drawCityHall(b);
-    } else {
-      drawSimpleBuilding(b);
+    switch (b.kind || b.key) {
+      case "cityHall":
+      case "city_hall":
+        drawCityHall(b);
+        break;
+      case "shop":
+        drawShopBuilding(b);
+        break;
+      case "house":
+        drawHouseBuilding(b);
+        break;
+      case "market":
+        drawMarketBuilding(b);
+        break;
+      default:
+        drawSimpleBuilding(b);
+        break;
     }
   }
 }
@@ -1200,6 +1480,19 @@ function drawJunk(prop) {
   ctx.fillRect(prop.x - TILE_SIZE * 0.1, prop.y - TILE_SIZE * 0.35, TILE_SIZE * 0.3, TILE_SIZE * 0.06);
 }
 
+function drawPebble(prop) {
+  const ctx = state.ctx;
+  if (!ctx) return;
+  ctx.fillStyle = adjustBrightness(tilePalette.pathBase, -0.05);
+  ctx.beginPath();
+  ctx.ellipse(prop.x, prop.y, TILE_SIZE * 0.16, TILE_SIZE * 0.08, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = adjustBrightness(tilePalette.pathEdge, -0.08);
+  ctx.beginPath();
+  ctx.ellipse(prop.x + TILE_SIZE * 0.08, prop.y - TILE_SIZE * 0.03, TILE_SIZE * 0.12, TILE_SIZE * 0.06, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 function drawPropShadow(prop) {
   const ctx = state.ctx;
   if (!ctx) return;
@@ -1268,6 +1561,9 @@ function drawProps() {
       case "junk":
         drawJunk(prop);
         break;
+      case "pebble":
+        drawPebble(prop);
+        break;
       default:
         break;
     }
@@ -1281,7 +1577,12 @@ function drawNpcSprite(npc) {
   const centerY = npc.y;
   const bodyRadius = npc.radius * 1.05;
   const bob = Math.sin((state.lastFrameTimestamp ?? 0) / 480 + (npc.bobPhase ?? 0)) * 1.1;
-  const outline = adjustBrightness(style.body, -0.25);
+  const mayorCenterX = state.mayor.x + state.mayor.width / 2;
+  const mayorCenterY = state.mayor.y + state.mayor.height / 2;
+  const dist = Math.hypot(centerX - mayorCenterX, centerY - mayorCenterY);
+  const highlight = Math.max(0, 1 - dist / npcHighlightRadius);
+  const outlineBase = adjustBrightness(style.body, -0.36);
+  const outline = highlight > 0 ? adjustBrightness(outlineBase, highlight * 0.62) : outlineBase;
 
   const drawCrabShape = () => {
     const width = bodyRadius * 2.4;
@@ -1291,7 +1592,7 @@ function drawNpcSprite(npc) {
     state.ctx.fillStyle = style.body;
     state.ctx.fill();
     state.ctx.strokeStyle = outline;
-    state.ctx.lineWidth = 1.5;
+    state.ctx.lineWidth = 1.9;
     state.ctx.stroke();
 
     state.ctx.fillStyle = style.accent;
@@ -1303,13 +1604,22 @@ function drawNpcSprite(npc) {
     state.ctx.strokeStyle = outline;
     state.ctx.stroke();
 
+    // legs
+    state.ctx.fillStyle = adjustBrightness(style.accent, -0.1);
+    const legY = centerY + height * 0.2;
+    for (let i = -2; i <= 2; i += 1) {
+      const lx = centerX + (i / 2) * width * 0.35;
+      state.ctx.fillRect(lx - 2, legY, 4, height * 0.22);
+    }
+
+    // shell stripe
     state.ctx.fillStyle = style.detail;
-    state.ctx.fillRect(centerX - width * 0.4, centerY + height * 0.1, width * 0.8, height * 0.18);
+    state.ctx.fillRect(centerX - width * 0.4, centerY + height * 0.08, width * 0.8, height * 0.16);
 
     state.ctx.fillStyle = "#0b0b0f";
     state.ctx.beginPath();
-    state.ctx.arc(centerX - bodyRadius * 0.3, centerY - height * 0.2, 1.5, 0, Math.PI * 2);
-    state.ctx.arc(centerX + bodyRadius * 0.3, centerY - height * 0.2, 1.5, 0, Math.PI * 2);
+    state.ctx.arc(centerX - bodyRadius * 0.3, centerY - height * 0.25, 1.6, 0, Math.PI * 2);
+    state.ctx.arc(centerX + bodyRadius * 0.3, centerY - height * 0.25, 1.6, 0, Math.PI * 2);
     state.ctx.fill();
   };
 
@@ -1321,7 +1631,7 @@ function drawNpcSprite(npc) {
     state.ctx.fillStyle = style.body;
     state.ctx.fill();
     state.ctx.strokeStyle = outline;
-    state.ctx.lineWidth = 1.5;
+    state.ctx.lineWidth = 2;
     state.ctx.stroke();
 
     state.ctx.fillStyle = style.detail;
@@ -1344,6 +1654,19 @@ function drawNpcSprite(npc) {
     }
     state.ctx.fill();
 
+    // ears
+    state.ctx.fillStyle = adjustBrightness(style.body, -0.25);
+    state.ctx.beginPath();
+    state.ctx.arc(centerX - width * 0.22, centerY - height * 0.78, bodyRadius * 0.2, 0, Math.PI * 2);
+    state.ctx.arc(centerX + width * 0.22, centerY - height * 0.78, bodyRadius * 0.2, 0, Math.PI * 2);
+    state.ctx.fill();
+
+    // tail
+    state.ctx.fillStyle = style.accent;
+    state.ctx.beginPath();
+    state.ctx.ellipse(centerX + width * 0.42, centerY + height * 0.25, bodyRadius * 0.38, bodyRadius * 0.18, Math.PI / 12, 0, Math.PI * 2);
+    state.ctx.fill();
+
     state.ctx.fillStyle = "#0b0b0f";
     state.ctx.beginPath();
     state.ctx.arc(centerX - bodyRadius * 0.25, centerY - bodyRadius * 0.2, 1.6, 0, Math.PI * 2);
@@ -1352,30 +1675,46 @@ function drawNpcSprite(npc) {
   };
 
   const drawDuckShape = () => {
-    const radius = bodyRadius * 1.05;
+    const bodyWidth = bodyRadius * 1.7;
+    const bodyHeight = bodyRadius * 1.15;
     state.ctx.beginPath();
-    state.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    state.ctx.ellipse(centerX, centerY + bodyRadius * 0.05, bodyWidth / 2, bodyHeight / 2, 0, 0, Math.PI * 2);
     state.ctx.fillStyle = style.body;
     state.ctx.fill();
     state.ctx.strokeStyle = outline;
-    state.ctx.lineWidth = 1.4;
+    state.ctx.lineWidth = 2;
     state.ctx.stroke();
 
+    const headRadius = bodyRadius * 0.62;
+    const headX = centerX + bodyRadius * 0.05;
+    const headY = centerY - bodyRadius * 0.72;
+    state.ctx.beginPath();
+    state.ctx.arc(headX, headY, headRadius, 0, Math.PI * 2);
+    state.ctx.fillStyle = style.body;
+    state.ctx.fill();
+    state.ctx.strokeStyle = outline;
+    state.ctx.stroke();
+
+    // beak
     state.ctx.fillStyle = style.accent;
     state.ctx.beginPath();
-    state.ctx.moveTo(centerX + radius * 0.4, centerY - radius * 0.1);
-    state.ctx.lineTo(centerX + radius * 0.7, centerY + radius * 0.05);
-    state.ctx.lineTo(centerX + radius * 0.4, centerY + radius * 0.2);
+    state.ctx.moveTo(headX + headRadius * 0.6, headY);
+    state.ctx.lineTo(headX + headRadius * 1.1, headY + headRadius * 0.18);
+    state.ctx.lineTo(headX + headRadius * 0.6, headY + headRadius * 0.35);
     state.ctx.closePath();
     state.ctx.fill();
 
+    // wing and belly
     state.ctx.fillStyle = style.detail;
-    state.ctx.fillRect(centerX - radius * 0.25, centerY + radius * 0.55, radius * 0.5, radius * 0.15);
+    state.ctx.beginPath();
+    state.ctx.ellipse(centerX - bodyWidth * 0.1, centerY + bodyRadius * 0.3, bodyRadius * 0.55, bodyRadius * 0.28, -Math.PI / 10, 0, Math.PI * 2);
+    state.ctx.fill();
 
+    // eyes
     state.ctx.fillStyle = "#0b0b0f";
     state.ctx.beginPath();
-    state.ctx.arc(centerX - radius * 0.25, centerY - radius * 0.15, 1.7, 0, Math.PI * 2);
-    state.ctx.arc(centerX + radius * 0.05, centerY - radius * 0.12, 1.4, 0, Math.PI * 2);
+    state.ctx.arc(headX - headRadius * 0.2, headY - headRadius * 0.05, 1.7, 0, Math.PI * 2);
+    state.ctx.arc(headX + headRadius * 0.12, headY - headRadius * 0.02, 1.4, 0, Math.PI * 2);
     state.ctx.fill();
   };
 
@@ -1387,7 +1726,7 @@ function drawNpcSprite(npc) {
     state.ctx.fillStyle = style.body;
     state.ctx.fill();
     state.ctx.strokeStyle = outline;
-    state.ctx.lineWidth = 1.4;
+    state.ctx.lineWidth = 1.9;
     state.ctx.stroke();
 
     state.ctx.fillStyle = style.accent;
@@ -1397,7 +1736,37 @@ function drawNpcSprite(npc) {
   state.ctx.save();
   state.ctx.translate(0, bob);
 
+  if (highlight > 0) {
+    state.ctx.save();
+    const glow = state.ctx.createRadialGradient(centerX, centerY, bodyRadius * 0.6, centerX, centerY, bodyRadius * 1.6);
+    glow.addColorStop(0, `rgba(255,255,255,${0.18 * highlight})`);
+    glow.addColorStop(1, "rgba(255,255,255,0)");
+    state.ctx.fillStyle = glow;
+    state.ctx.beginPath();
+    state.ctx.arc(centerX, centerY + npc.radius * 0.2, bodyRadius * 1.7, 0, Math.PI * 2);
+    state.ctx.fill();
+    state.ctx.restore();
+  }
+
   drawEntityShadow(centerX, centerY + npc.radius * 0.6, npc.radius * 1.1, npc.radius * 0.55, 0.22);
+  if (highlight > 0.15) {
+    state.ctx.save();
+    state.ctx.strokeStyle = adjustBrightness(style.detail, 0.1);
+    state.ctx.globalAlpha = 0.4 * highlight;
+    state.ctx.lineWidth = 1.1 + highlight * 0.8;
+    state.ctx.beginPath();
+    state.ctx.arc(centerX, centerY + npc.radius * 0.08, bodyRadius * 1.22, 0, Math.PI * 2);
+    state.ctx.stroke();
+    state.ctx.restore();
+  }
+
+  state.ctx.save();
+  state.ctx.strokeStyle = "rgba(6, 8, 12, 0.38)";
+  state.ctx.lineWidth = 2.8;
+  state.ctx.beginPath();
+  state.ctx.arc(centerX, centerY + npc.radius * 0.08, bodyRadius * 1.2, 0, Math.PI * 2);
+  state.ctx.stroke();
+  state.ctx.restore();
 
   switch (npc.species) {
     case "crab":
@@ -1415,6 +1784,19 @@ function drawNpcSprite(npc) {
       break;
   }
 
+  state.ctx.strokeStyle = adjustBrightness(style.body, -0.36);
+  state.ctx.lineWidth = 1.8 + highlight * 0.45;
+  state.ctx.beginPath();
+  state.ctx.arc(centerX, centerY + npc.radius * 0.15, bodyRadius * 1.08, 0, Math.PI * 2);
+  state.ctx.stroke();
+  state.ctx.strokeStyle = adjustBrightness(style.detail, 0.16);
+  state.ctx.globalAlpha = 0.42 + highlight * 0.18;
+  state.ctx.lineWidth = 0.9;
+  state.ctx.beginPath();
+  state.ctx.arc(centerX, centerY + npc.radius * 0.08, bodyRadius * 0.94, 0, Math.PI * 2);
+  state.ctx.stroke();
+  state.ctx.globalAlpha = 1;
+
   state.ctx.restore();
 }
 
@@ -1431,14 +1813,15 @@ function drawMayor() {
   const centerY = state.mayor.y + state.mayor.height / 2;
   const isMoving = Math.hypot(state.mayor.velX, state.mayor.velY) > 2;
   const time = (state.lastFrameTimestamp ?? 0) / 1000;
-  const idleBob = Math.sin((state.lastFrameTimestamp ?? 0) / 320) * 1.5;
-  const bouncePhase = isMoving ? state.mayor.walkPhase : time * 0.6;
-  const bounce = fxConfig.mayorBounceEnabled ? Math.sin(bouncePhase * 2) * (isMoving ? 2.2 : 1.2) : 0;
-  const tilt = fxConfig.mayorBounceEnabled ? Math.sin(bouncePhase) * (Math.PI / 180) * 1.4 : 0;
-  const scale = fxConfig.mayorBounceEnabled ? 1 + Math.sin(bouncePhase * 2) * (isMoving ? 0.02 : 0.01) : 1;
+  const idleBob = Math.sin((state.lastFrameTimestamp ?? 0) / 360) * 1.2;
+  const bouncePhase = isMoving ? state.mayor.walkPhase : time * 0.55;
+  const bounce = fxConfig.mayorBounceEnabled ? Math.sin(bouncePhase * 2) * (isMoving ? 1.4 : 0.9) : 0;
+  const tilt = fxConfig.mayorBounceEnabled ? Math.sin(bouncePhase) * (Math.PI / 180) * 0.9 : 0;
+  const scale = fxConfig.mayorBounceEnabled ? 1 + Math.sin(bouncePhase * 2) * (isMoving ? 0.013 : 0.008) : 1;
   const bodyRadius = state.mayor.width * 0.34;
   const glowRadius = state.mayor.width * 0.58;
-  const outlineColor = adjustBrightness(MAYOR_BODY, -0.28);
+  const outlineColor = adjustBrightness(MAYOR_BODY, -0.4);
+  const tentacleCount = 5;
 
   state.ctx.save();
   const baseY = centerY + bounce + idleBob;
@@ -1457,13 +1840,36 @@ function drawMayor() {
 
   // dome head
   state.ctx.beginPath();
-  state.ctx.ellipse(centerX, baseY - bodyRadius * 0.6, bodyRadius * 1.05, bodyRadius * 0.9, 0, Math.PI, 0, true);
+  state.ctx.ellipse(centerX, baseY - bodyRadius * 0.62, bodyRadius * 1.05, bodyRadius * 0.88, 0, Math.PI, 0, true);
   state.ctx.closePath();
   state.ctx.fillStyle = MAYOR_BODY;
   state.ctx.fill();
   state.ctx.strokeStyle = outlineColor;
-  state.ctx.lineWidth = 2;
+  state.ctx.lineWidth = 3.2;
   state.ctx.stroke();
+  state.ctx.strokeStyle = adjustBrightness(MAYOR_BODY, 0.18);
+  state.ctx.lineWidth = 1.6;
+  state.ctx.stroke();
+  state.ctx.fillStyle = adjustBrightness(MAYOR_BODY, 0.14);
+  state.ctx.beginPath();
+  state.ctx.ellipse(centerX + bodyRadius * 0.12, baseY - bodyRadius * 0.72, bodyRadius * 0.35, bodyRadius * 0.25, 0, 0, Math.PI * 2);
+  state.ctx.fill();
+
+  // hat
+  state.ctx.fillStyle = MAYOR_HAT;
+  state.ctx.fillRect(centerX - bodyRadius * 0.55, baseY - bodyRadius * 1.05, bodyRadius * 1.1, bodyRadius * 0.18);
+  state.ctx.beginPath();
+  state.ctx.roundRect?.(
+    centerX - bodyRadius * 0.38,
+    baseY - bodyRadius * 1.45,
+    bodyRadius * 0.76,
+    bodyRadius * 0.52,
+    bodyRadius * 0.12,
+  );
+  if (!state.ctx.roundRect) {
+    state.ctx.rect(centerX - bodyRadius * 0.38, baseY - bodyRadius * 1.45, bodyRadius * 0.76, bodyRadius * 0.52);
+  }
+  state.ctx.fill();
 
   // mantle
   state.ctx.beginPath();
@@ -1471,25 +1877,56 @@ function drawMayor() {
   state.ctx.fillStyle = MAYOR_BODY;
   state.ctx.fill();
   state.ctx.strokeStyle = outlineColor;
-  state.ctx.lineWidth = 2;
+  state.ctx.lineWidth = 2.6;
+  state.ctx.stroke();
+  state.ctx.strokeStyle = adjustBrightness(MAYOR_BODY, 0.16);
+  state.ctx.lineWidth = 1.4;
+  state.ctx.stroke();
+  state.ctx.strokeStyle = adjustBrightness(MAYOR_BODY, 0.3);
+  state.ctx.lineWidth = 0.9;
+  state.ctx.stroke();
+
+  // collar
+  state.ctx.fillStyle = MAYOR_CORAL;
+  state.ctx.beginPath();
+  state.ctx.ellipse(centerX, baseY + bodyRadius * 0.28, bodyRadius * 0.95, bodyRadius * 0.32, 0, 0, Math.PI * 2);
+  state.ctx.fill();
+  state.ctx.strokeStyle = adjustBrightness(MAYOR_CORAL, -0.2);
+  state.ctx.stroke();
+  state.ctx.strokeStyle = adjustBrightness(MAYOR_CORAL, 0.2);
+  state.ctx.lineWidth = 0.8;
   state.ctx.stroke();
 
   // tentacles
-  const tentacleCount = 4;
   for (let i = 0; i < tentacleCount; i += 1) {
-    const offset = (i - (tentacleCount - 1) / 2) * (bodyRadius * 0.55);
-    const tentacleY = baseY + bodyRadius * 0.8;
+    const offset = (i - (tentacleCount - 1) / 2) * (bodyRadius * 0.5);
+    const sway = Math.sin(bouncePhase * 2 + i * 0.6) * bodyRadius * 0.08;
+    const tentacleY = baseY + bodyRadius * 0.78;
     state.ctx.beginPath();
-    state.ctx.moveTo(centerX + offset - bodyRadius * 0.2, tentacleY);
-    state.ctx.quadraticCurveTo(centerX + offset, tentacleY + bodyRadius * 0.65, centerX + offset + bodyRadius * 0.25, tentacleY);
-    state.ctx.lineTo(centerX + offset + bodyRadius * 0.25, tentacleY - bodyRadius * 0.25);
-    state.ctx.quadraticCurveTo(centerX + offset, tentacleY - bodyRadius * 0.5, centerX + offset - bodyRadius * 0.2, tentacleY - bodyRadius * 0.25);
+    state.ctx.moveTo(centerX + offset - bodyRadius * 0.2 + sway, tentacleY);
+    state.ctx.quadraticCurveTo(
+      centerX + offset,
+      tentacleY + bodyRadius * 0.7,
+      centerX + offset + bodyRadius * 0.24 + sway,
+      tentacleY - bodyRadius * 0.05,
+    );
+    state.ctx.quadraticCurveTo(
+      centerX + offset + bodyRadius * 0.12,
+      tentacleY + bodyRadius * 0.55,
+      centerX + offset - bodyRadius * 0.18 + sway,
+      tentacleY - bodyRadius * 0.1,
+    );
     state.ctx.closePath();
     state.ctx.fillStyle = MAYOR_SUIT;
     state.ctx.fill();
-    state.ctx.strokeStyle = adjustBrightness(MAYOR_SUIT, -0.2);
-    state.ctx.lineWidth = 1.6;
+    state.ctx.strokeStyle = adjustBrightness(MAYOR_SUIT, -0.28);
+    state.ctx.lineWidth = 2.2;
     state.ctx.stroke();
+
+    state.ctx.fillStyle = MAYOR_ACCENT;
+    state.ctx.beginPath();
+    state.ctx.ellipse(centerX + offset, tentacleY + bodyRadius * 0.28, bodyRadius * 0.18, bodyRadius * 0.14, 0, 0, Math.PI * 2);
+    state.ctx.fill();
   }
 
   // face details
@@ -1509,6 +1946,13 @@ function drawMayor() {
   state.ctx.arc(centerX + bodyRadius * 0.28, eyeY, 1.8, 0, Math.PI * 2);
   state.ctx.fill();
 
+  state.ctx.beginPath();
+  state.ctx.moveTo(centerX + bodyRadius * 0.38, eyeY + 2);
+  state.ctx.quadraticCurveTo(centerX + bodyRadius * 0.68, eyeY + bodyRadius * 0.18, centerX + bodyRadius * 0.55, eyeY + bodyRadius * 0.34);
+  state.ctx.strokeStyle = adjustBrightness(MAYOR_MONOCLE, -0.08);
+  state.ctx.lineWidth = 1.2;
+  state.ctx.stroke();
+
   // smile hint
   state.ctx.strokeStyle = adjustBrightness(MAYOR_BODY, -0.18);
   state.ctx.lineWidth = 1.4;
@@ -1526,27 +1970,31 @@ function drawChatBubbles() {
   for (let i = chatBubbles.length - 1; i >= 0; i -= 1) {
     const bubble = chatBubbles[i];
     bubble.remaining -= deltaMs;
-    bubble.y -= deltaMs * 0.012;
+    bubble.y -= deltaMs * (bubble.riseRate ?? 0.0125);
     if (bubble.remaining <= 0) {
       chatBubbles.splice(i, 1);
       continue;
     }
 
     const alpha = Math.max(0, bubble.remaining / bubble.total);
-    const paddingX = 6;
-    const paddingY = 4;
+    const easedAlpha = Math.pow(alpha, 0.82);
+    const paddingX = 12;
+    const paddingY = 8;
     ctx.save();
-    ctx.globalAlpha = Math.min(1, alpha * 1.2);
-    ctx.font = "12px 'Segoe UI', system-ui, sans-serif";
+    ctx.globalAlpha = Math.min(1, easedAlpha * 1.24);
+    ctx.font = "700 16px 'Segoe UI', system-ui, sans-serif";
     const textWidth = ctx.measureText(bubble.text).width;
     const bubbleWidth = textWidth + paddingX * 2;
-    const bubbleHeight = 18;
+    const bubbleHeight = 24;
     const x = bubble.x - bubbleWidth / 2;
     const y = bubble.y - bubbleHeight - 6;
 
-    ctx.fillStyle = "rgba(10, 18, 24, 0.75)";
-    ctx.strokeStyle = "rgba(240, 250, 255, 0.4)";
-    ctx.lineWidth = 1;
+    const bg = ctx.createLinearGradient(x, y, x, y + bubbleHeight);
+    bg.addColorStop(0, "rgba(10, 16, 26, 0.94)");
+    bg.addColorStop(1, "rgba(14, 24, 36, 0.9)");
+    ctx.fillStyle = bg;
+    ctx.strokeStyle = "rgba(240, 250, 255, 0.9)";
+    ctx.lineWidth = 1.8;
     ctx.beginPath();
     ctx.roundRect?.(x, y, bubbleWidth, bubbleHeight, 6);
     if (!ctx.roundRect) {
@@ -1555,7 +2003,9 @@ function drawChatBubbles() {
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = "#e8f2ff";
+    ctx.fillStyle = "#f7fbff";
+    ctx.shadowColor = "rgba(0, 0, 0, 0.65)";
+    ctx.shadowBlur = 6;
     ctx.fillText(bubble.text, bubble.x - textWidth / 2, y + bubbleHeight - paddingY);
     ctx.restore();
   }
@@ -1568,9 +2018,9 @@ function drawEdgeVignette() {
   const cx = state.canvas.width / 2;
   const cy = state.canvas.height / 2;
   const radius = Math.sqrt(cx * cx + cy * cy) * 1.2;
-  const gradient = ctx.createRadialGradient(cx, cy, radius * 0.35, cx, cy, radius);
-  gradient.addColorStop(0, "rgba(0,0,0,0)");
-  gradient.addColorStop(1, "rgba(0,0,0,0.35)");
+  const gradient = ctx.createRadialGradient(cx, cy, radius * 0.38, cx, cy, radius);
+  gradient.addColorStop(0.22, "rgba(0,0,0,0)");
+  gradient.addColorStop(1, "rgba(0,0,0,0.12)");
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, state.canvas.width, state.canvas.height);
 }
@@ -1579,8 +2029,8 @@ function drawPixelGrid() {
   if (!state.ctx || !state.canvas || !fxConfig.pixelGridEnabled) return;
   const ctx = state.ctx;
   ctx.save();
-  ctx.strokeStyle = "rgba(255,255,255,0.025)";
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(255,255,255,0.0006)";
+  ctx.lineWidth = 0.3;
   const spacing = TILE_SIZE * 2;
   for (let x = 0; x <= state.canvas.width; x += spacing) {
     ctx.beginPath();
@@ -1601,7 +2051,7 @@ function drawScanlines() {
   if (!state.ctx || !state.canvas || !fxConfig.crtEnabled) return;
   const ctx = state.ctx;
   ctx.save();
-  ctx.globalAlpha = 0.04;
+  ctx.globalAlpha = 0.0018;
   ctx.strokeStyle = "#000";
   ctx.lineWidth = 1;
   for (let y = 0; y < state.canvas.height; y += 4) {
@@ -1610,9 +2060,8 @@ function drawScanlines() {
     ctx.lineTo(state.canvas.width, y + 0.5);
     ctx.stroke();
   }
-  ctx.globalAlpha = 0.06;
-  ctx.strokeStyle = "rgba(255,255,255,0.05)";
-  ctx.strokeRect(4.5, 4.5, state.canvas.width - 9, state.canvas.height - 9);
+  ctx.globalAlpha = 0.006;
+  ctx.strokeStyle = "rgba(255,255,255,0.012)";
   ctx.restore();
 }
 
@@ -1690,7 +2139,7 @@ function updateMayor(deltaMs) {
 
   const movingMagnitude = Math.hypot(state.mayor.velX, state.mayor.velY);
   if (movingMagnitude > 1) {
-    state.mayor.walkPhase = (state.mayor.walkPhase + deltaSeconds * 6) % (Math.PI * 2);
+    state.mayor.walkPhase = (state.mayor.walkPhase + deltaSeconds * 5.4) % (Math.PI * 2);
   }
 }
 
