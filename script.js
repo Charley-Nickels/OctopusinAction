@@ -23,12 +23,12 @@
 const TILE_SIZE = 48;
 const GREET_RADIUS = 40;
 const NPC_RADIUS = 7;
-const MAYOR_BODY = "#f59e74";
-const MAYOR_SUIT = "#1f2230";
-const MAYOR_ACCENT = "#e35d5b";
-const MAYOR_HAT = "#131722";
-const MAYOR_MONOCLE = "#f3d9a4";
-const MAYOR_GLOW = "rgba(243, 158, 130, 0.28)";
+const MAYOR_BODY = "#c8a2dd";
+const MAYOR_SUIT = "#a16bc0";
+const MAYOR_ACCENT = "#8550a8";
+const MAYOR_HAT = "#6b3d8a";
+const MAYOR_MONOCLE = "#f2e7c6";
+const MAYOR_GLOW = "rgba(200, 162, 221, 0.26)";
 
 const npcSpeciesStyles = {
   duck: {
@@ -107,11 +107,13 @@ const SWAY_TYPES = new Set(["lamp", "sign", "planter", "coral"]);
 
 const fxConfig = {
   vignetteEnabled: true,
-  crtEnabled: true,
-  pixelGridEnabled: true,
+  crtEnabled: false,
+  pixelGridEnabled: false,
   windSwayEnabled: true,
   mayorBounceEnabled: true,
 };
+
+const chatBubbles = [];
 
 const movementSmoothingMs = 12;
 const hudFadeDurationMs = 140;
@@ -329,6 +331,14 @@ function updateButtonStates() {
     state.ui.btnStart.classList.toggle("btn-active", state.running);
     state.ui.btnPause.classList.toggle("btn-active", !state.running);
   }
+}
+
+function updateGreetHint() {
+  const hintEl = state.ui.greetHint;
+  if (!hintEl) return;
+  const npc = findNearbyNpc();
+  const shouldShow = Boolean(npc);
+  hintEl.classList.toggle("hidden", !shouldShow);
 }
 
 function showOverlay() {
@@ -614,26 +624,48 @@ function onKeyUp(event) {
   }
 }
 
-function greetAttempt() {
-  if (!state.currentTask) return;
-  if (state.currentTask.type !== "greet") return;
-  if (state.currentTask.state !== "accepted") return;
-  if (!isWorkHour(state.timeMinutes)) return;
-
+function findNearbyNpc(radius = GREET_RADIUS) {
   const mayorCenterX = state.mayor.x + state.mayor.width / 2;
   const mayorCenterY = state.mayor.y + state.mayor.height / 2;
-  let found = false;
+  let closest = null;
+  let closestDistSq = Number.POSITIVE_INFINITY;
+
   for (const npc of state.npcs) {
     const dx = npc.x - mayorCenterX;
     const dy = npc.y - mayorCenterY;
     const distSq = dx * dx + dy * dy;
-    if (distSq <= GREET_RADIUS * GREET_RADIUS) {
-      found = true;
-      break;
+    if (distSq <= radius * radius && distSq < closestDistSq) {
+      closest = npc;
+      closestDistSq = distSq;
     }
   }
 
-  if (!found) return;
+  return closest;
+}
+
+function addChatBubble(npc) {
+  const phrases = ["Hey there!", "Nice day in the harbor!", "Busy today?", "Mayor, good to see you!"];
+  const text = phrases[Math.floor(Math.random() * phrases.length)];
+  const lifetime = 1600;
+  chatBubbles.push({
+    x: npc.x,
+    y: npc.y - npc.radius * 1.8,
+    text,
+    remaining: lifetime,
+    total: lifetime,
+  });
+}
+
+function greetAttempt() {
+  const nearbyNpc = findNearbyNpc();
+  if (!nearbyNpc) return;
+
+  addChatBubble(nearbyNpc);
+
+  if (!state.currentTask) return;
+  if (state.currentTask.type !== "greet") return;
+  if (state.currentTask.state !== "accepted") return;
+  if (!isWorkHour(state.timeMinutes)) return;
 
   const currentProgress = state.currentTask.progress ?? 0;
   if (currentProgress >= state.currentTask.goal) {
@@ -954,81 +986,103 @@ function drawWaterTile(row, col) {
 
 function drawBuildings() {
   if (!state.ctx) return;
-  for (const b of buildings) {
-    const roofHeight = b.height * 0.28;
+  const drawCityHall = (b) => {
+    const roofHeight = b.height * 0.22;
+    const stepHeight = Math.max(6, b.height * 0.12);
+    const wallColor = b.wall ?? buildingPalette.civicWall;
+    const roofColor = b.roof ?? buildingPalette.civicRoof;
+    const accent = b.accent ?? buildingPalette.civicAccent;
+
+    state.ctx.fillStyle = buildingPalette.shadow;
+    state.ctx.fillRect(b.x + 6, b.y + b.height - 4, b.width - 12, 6);
+
+    // steps/platform
+    state.ctx.fillStyle = adjustBrightness(accent, 0.05);
+    state.ctx.fillRect(b.x - 4, b.y + b.height - stepHeight, b.width + 8, stepHeight);
+
+    // main body
+    state.ctx.fillStyle = wallColor;
+    state.ctx.fillRect(b.x, b.y + roofHeight, b.width, b.height - roofHeight - stepHeight);
+    state.ctx.strokeStyle = adjustBrightness(wallColor, -0.3);
+    state.ctx.lineWidth = 2;
+    state.ctx.strokeRect(b.x - 1, b.y + roofHeight - 1, b.width + 2, b.height - roofHeight - stepHeight + 2);
+
+    // roof bar
+    state.ctx.fillStyle = roofColor;
+    state.ctx.fillRect(b.x - 2, b.y, b.width + 4, roofHeight + 4);
+    state.ctx.fillStyle = adjustBrightness(roofColor, 0.12);
+    state.ctx.fillRect(b.x, b.y + 2, b.width, 6);
+
+    // windows and crest
+    const windowWidth = Math.max(12, b.width * 0.18);
+    const windowHeight = windowWidth * 0.7;
+    const windowY = b.y + roofHeight + 10;
+    state.ctx.fillStyle = adjustBrightness(wallColor, 0.22);
+    state.ctx.fillRect(b.x + 10, windowY, windowWidth, windowHeight);
+    state.ctx.fillRect(b.x + b.width - windowWidth - 10, windowY, windowWidth, windowHeight);
+    state.ctx.fillRect(b.x + b.width / 2 - windowWidth / 2, windowY, windowWidth, windowHeight);
+
+    state.ctx.beginPath();
+    state.ctx.arc(b.x + b.width / 2, windowY - 6, Math.max(6, b.width * 0.1), 0, Math.PI * 2);
+    state.ctx.fillStyle = accent;
+    state.ctx.fill();
+    state.ctx.strokeStyle = adjustBrightness(accent, -0.18);
+    state.ctx.lineWidth = 1.4;
+    state.ctx.stroke();
+
+    // door and banner
+    const doorWidth = Math.max(16, b.width * 0.2);
+    const doorHeight = Math.max(18, b.height * 0.26);
+    const doorX = b.x + b.width / 2 - doorWidth / 2;
+    const doorY = b.y + b.height - stepHeight - doorHeight + 2;
+    state.ctx.fillStyle = adjustBrightness(wallColor, -0.18);
+    state.ctx.fillRect(doorX, doorY, doorWidth, doorHeight);
+    state.ctx.fillStyle = adjustBrightness(accent, -0.05);
+    state.ctx.fillRect(doorX + doorWidth / 2 - 3, doorY + doorHeight * 0.55, 6, 6);
+
+    state.ctx.fillStyle = accent;
+    state.ctx.fillRect(b.x + b.width / 2 - 6, b.y + roofHeight + 2, 12, 14);
+  };
+
+  const drawSimpleBuilding = (b) => {
+    const roofHeight = b.height * 0.2;
     const wallColor = b.wall ?? "#55636f";
     const roofColor = b.roof ?? "#38434e";
-    const shadowColor = buildingPalette.shadow;
-    const wallShadow = adjustBrightness(wallColor, -0.18);
-    const roofHighlight = adjustBrightness(roofColor, 0.1);
+    const accent = adjustBrightness(wallColor, 0.12);
 
-    // ground shadow
-    state.ctx.fillStyle = shadowColor;
-    state.ctx.fillRect(b.x + 4, b.y + b.height - 6, b.width - 8, 6);
+    state.ctx.fillStyle = buildingPalette.shadow;
+    state.ctx.fillRect(b.x + 4, b.y + b.height - 4, b.width - 8, 4);
 
-    // facade with subtle side shade
     state.ctx.fillStyle = wallColor;
     state.ctx.fillRect(b.x, b.y + roofHeight, b.width, b.height - roofHeight);
-    const sideWidth = Math.max(6, b.width * 0.22);
-    state.ctx.fillStyle = wallShadow;
-    state.ctx.fillRect(b.x + b.width - sideWidth, b.y + roofHeight, sideWidth, b.height - roofHeight);
-
-    // roof block and highlight
-    state.ctx.fillStyle = roofColor;
-    state.ctx.fillRect(b.x, b.y, b.width, roofHeight);
-    state.ctx.fillStyle = roofHighlight;
-    state.ctx.fillRect(b.x + 2, b.y + 2, b.width - 4, 4);
-
-    // subtle outline
-    state.ctx.strokeStyle = adjustBrightness(wallColor, -0.35);
-    state.ctx.lineWidth = 1.5;
+    state.ctx.strokeStyle = adjustBrightness(wallColor, -0.32);
+    state.ctx.lineWidth = 1.4;
     state.ctx.strokeRect(b.x - 1, b.y + roofHeight - 1, b.width + 2, b.height - roofHeight + 2);
 
-    // doorway band
-    const doorWidth = Math.max(10, b.width * 0.14);
-    const doorHeight = Math.max(14, b.height * 0.18);
-    state.ctx.fillStyle = adjustBrightness(wallColor, -0.25);
+    state.ctx.fillStyle = roofColor;
+    state.ctx.fillRect(b.x - 1, b.y, b.width + 2, roofHeight + 3);
+    state.ctx.fillStyle = adjustBrightness(roofColor, 0.14);
+    state.ctx.fillRect(b.x, b.y + 2, b.width, 4);
+
+    const doorWidth = Math.max(12, b.width * 0.16);
+    const doorHeight = Math.max(16, b.height * 0.24);
+    state.ctx.fillStyle = adjustBrightness(wallColor, -0.2);
     state.ctx.fillRect(b.x + b.width / 2 - doorWidth / 2, b.y + b.height - doorHeight, doorWidth, doorHeight);
-    state.ctx.fillStyle = adjustBrightness(wallColor, 0.2);
-    state.ctx.fillRect(b.x + b.width / 2 - doorWidth / 2 + 4, b.y + b.height - doorHeight + 6, 4, 6);
 
-    // windows
-    const windowSize = Math.max(10, b.width * 0.18);
-    const windowY = b.y + roofHeight + 8;
-    state.ctx.fillStyle = adjustBrightness(wallColor, 0.28);
-    state.ctx.fillRect(b.x + 8, windowY, windowSize, windowSize * 0.7);
-    state.ctx.fillRect(b.x + b.width - windowSize - 8, windowY, windowSize, windowSize * 0.7);
+    const windowWidth = Math.max(10, b.width * 0.2);
+    const windowHeight = windowWidth * 0.7;
+    state.ctx.fillStyle = accent;
+    state.ctx.fillRect(b.x + 8, b.y + roofHeight + 6, windowWidth, windowHeight);
+    if (b.width > TILE_SIZE * 1.9) {
+      state.ctx.fillRect(b.x + b.width - windowWidth - 8, b.y + roofHeight + 6, windowWidth, windowHeight);
+    }
+  };
 
+  for (const b of buildings) {
     if (b.key === "city_hall") {
-      const stripeY = b.y + roofHeight - 6;
-      state.ctx.fillStyle = b.accent ?? buildingPalette.civicAccent;
-      state.ctx.fillRect(b.x + 6, stripeY, b.width - 12, 4);
-
-      state.ctx.save();
-      state.ctx.globalAlpha = 0.35;
-      state.ctx.fillStyle = adjustBrightness(b.accent ?? buildingPalette.civicAccent, 0.25);
-      state.ctx.fillRect(b.x + 4, b.y + 4, b.width - 8, roofHeight * 0.5);
-      state.ctx.restore();
-
-      // cast shadow trapezoid
-      state.ctx.fillStyle = "rgba(0, 0, 0, 0.14)";
-      state.ctx.beginPath();
-      state.ctx.moveTo(b.x + b.width * 0.12, b.y + b.height);
-      state.ctx.lineTo(b.x + b.width * 0.88, b.y + b.height);
-      state.ctx.lineTo(b.x + b.width * 0.7, b.y + b.height + 10);
-      state.ctx.lineTo(b.x + b.width * 0.3, b.y + b.height + 10);
-      state.ctx.closePath();
-      state.ctx.fill();
-
-      // crest
-      const crestRadius = Math.max(6, b.width * 0.12);
-      const crestX = b.x + b.width / 2;
-      const crestY = b.y + roofHeight + 18;
-      state.ctx.beginPath();
-      state.ctx.arc(crestX, crestY, crestRadius, 0, Math.PI * 2);
-      state.ctx.closePath();
-      state.ctx.fillStyle = adjustBrightness(b.accent ?? buildingPalette.civicAccent, -0.08);
-      state.ctx.fill();
+      drawCityHall(b);
+    } else {
+      drawSimpleBuilding(b);
     }
   }
 }
@@ -1225,66 +1279,140 @@ function drawNpcSprite(npc) {
   const style = npcSpeciesStyles[npc.species] ?? npcSpeciesStyles.default;
   const centerX = npc.x;
   const centerY = npc.y;
-  const bodyRadius = npc.radius;
-  const bob = Math.sin((state.lastFrameTimestamp ?? 0) / 420 + (npc.bobPhase ?? 0)) * 1.5;
+  const bodyRadius = npc.radius * 1.05;
+  const bob = Math.sin((state.lastFrameTimestamp ?? 0) / 480 + (npc.bobPhase ?? 0)) * 1.1;
+  const outline = adjustBrightness(style.body, -0.25);
+
+  const drawCrabShape = () => {
+    const width = bodyRadius * 2.4;
+    const height = bodyRadius * 1.1;
+    state.ctx.beginPath();
+    state.ctx.ellipse(centerX, centerY, width / 2, height / 2, 0, 0, Math.PI * 2);
+    state.ctx.fillStyle = style.body;
+    state.ctx.fill();
+    state.ctx.strokeStyle = outline;
+    state.ctx.lineWidth = 1.5;
+    state.ctx.stroke();
+
+    state.ctx.fillStyle = style.accent;
+    const clawSize = bodyRadius * 0.7;
+    state.ctx.beginPath();
+    state.ctx.arc(centerX - width * 0.55, centerY - height * 0.1, clawSize * 0.6, 0, Math.PI * 2);
+    state.ctx.arc(centerX + width * 0.55, centerY - height * 0.1, clawSize * 0.6, 0, Math.PI * 2);
+    state.ctx.fill();
+    state.ctx.strokeStyle = outline;
+    state.ctx.stroke();
+
+    state.ctx.fillStyle = style.detail;
+    state.ctx.fillRect(centerX - width * 0.4, centerY + height * 0.1, width * 0.8, height * 0.18);
+
+    state.ctx.fillStyle = "#0b0b0f";
+    state.ctx.beginPath();
+    state.ctx.arc(centerX - bodyRadius * 0.3, centerY - height * 0.2, 1.5, 0, Math.PI * 2);
+    state.ctx.arc(centerX + bodyRadius * 0.3, centerY - height * 0.2, 1.5, 0, Math.PI * 2);
+    state.ctx.fill();
+  };
+
+  const drawOtterShape = () => {
+    const width = bodyRadius * 1.6;
+    const height = bodyRadius * 2.2;
+    state.ctx.beginPath();
+    state.ctx.ellipse(centerX, centerY - bodyRadius * 0.1, width / 2, height / 2, 0, 0, Math.PI * 2);
+    state.ctx.fillStyle = style.body;
+    state.ctx.fill();
+    state.ctx.strokeStyle = outline;
+    state.ctx.lineWidth = 1.5;
+    state.ctx.stroke();
+
+    state.ctx.fillStyle = style.detail;
+    state.ctx.beginPath();
+    state.ctx.arc(centerX - width * 0.2, centerY - height * 0.6, bodyRadius * 0.35, 0, Math.PI * 2);
+    state.ctx.arc(centerX + width * 0.2, centerY - height * 0.6, bodyRadius * 0.35, 0, Math.PI * 2);
+    state.ctx.fill();
+
+    state.ctx.fillStyle = style.accent;
+    state.ctx.beginPath();
+    state.ctx.roundRect?.(
+      centerX + width * 0.3,
+      centerY + height * 0.15,
+      bodyRadius * 0.9,
+      bodyRadius * 0.5,
+      3,
+    );
+    if (!state.ctx.roundRect) {
+      state.ctx.rect(centerX + width * 0.3, centerY + height * 0.15, bodyRadius * 0.9, bodyRadius * 0.5);
+    }
+    state.ctx.fill();
+
+    state.ctx.fillStyle = "#0b0b0f";
+    state.ctx.beginPath();
+    state.ctx.arc(centerX - bodyRadius * 0.25, centerY - bodyRadius * 0.2, 1.6, 0, Math.PI * 2);
+    state.ctx.arc(centerX + bodyRadius * 0.25, centerY - bodyRadius * 0.2, 1.6, 0, Math.PI * 2);
+    state.ctx.fill();
+  };
+
+  const drawDuckShape = () => {
+    const radius = bodyRadius * 1.05;
+    state.ctx.beginPath();
+    state.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    state.ctx.fillStyle = style.body;
+    state.ctx.fill();
+    state.ctx.strokeStyle = outline;
+    state.ctx.lineWidth = 1.4;
+    state.ctx.stroke();
+
+    state.ctx.fillStyle = style.accent;
+    state.ctx.beginPath();
+    state.ctx.moveTo(centerX + radius * 0.4, centerY - radius * 0.1);
+    state.ctx.lineTo(centerX + radius * 0.7, centerY + radius * 0.05);
+    state.ctx.lineTo(centerX + radius * 0.4, centerY + radius * 0.2);
+    state.ctx.closePath();
+    state.ctx.fill();
+
+    state.ctx.fillStyle = style.detail;
+    state.ctx.fillRect(centerX - radius * 0.25, centerY + radius * 0.55, radius * 0.5, radius * 0.15);
+
+    state.ctx.fillStyle = "#0b0b0f";
+    state.ctx.beginPath();
+    state.ctx.arc(centerX - radius * 0.25, centerY - radius * 0.15, 1.7, 0, Math.PI * 2);
+    state.ctx.arc(centerX + radius * 0.05, centerY - radius * 0.12, 1.4, 0, Math.PI * 2);
+    state.ctx.fill();
+  };
+
+  const drawDefaultShape = () => {
+    const width = bodyRadius * 1.6;
+    const height = bodyRadius * 1.9;
+    state.ctx.beginPath();
+    state.ctx.ellipse(centerX, centerY, width / 2, height / 2, 0, 0, Math.PI * 2);
+    state.ctx.fillStyle = style.body;
+    state.ctx.fill();
+    state.ctx.strokeStyle = outline;
+    state.ctx.lineWidth = 1.4;
+    state.ctx.stroke();
+
+    state.ctx.fillStyle = style.accent;
+    state.ctx.fillRect(centerX - width * 0.25, centerY + height * 0.05, width * 0.5, height * 0.28);
+  };
 
   state.ctx.save();
   state.ctx.translate(0, bob);
 
   drawEntityShadow(centerX, centerY + npc.radius * 0.6, npc.radius * 1.1, npc.radius * 0.55, 0.22);
 
-  // base body
-  state.ctx.beginPath();
-  state.ctx.arc(centerX, centerY, bodyRadius, 0, Math.PI * 2);
-  state.ctx.closePath();
-  state.ctx.fillStyle = style.body;
-  state.ctx.fill();
-
-  // species-specific accents
   switch (npc.species) {
-    case "duck": {
-      state.ctx.fillStyle = style.detail;
-      state.ctx.fillRect(centerX - bodyRadius * 0.6, centerY, bodyRadius * 1.2, bodyRadius * 0.7);
-      state.ctx.fillStyle = style.accent;
-      state.ctx.fillRect(centerX - bodyRadius * 0.5, centerY + bodyRadius * 0.4, bodyRadius, bodyRadius * 0.3);
+    case "crab":
+      drawCrabShape();
       break;
-    }
-    case "beaver": {
-      state.ctx.fillStyle = style.detail;
-      state.ctx.fillRect(centerX - bodyRadius * 0.6, centerY + bodyRadius * 0.1, bodyRadius * 1.2, bodyRadius * 0.6);
-      state.ctx.fillStyle = style.accent;
-      state.ctx.fillRect(centerX + bodyRadius * 0.7, centerY - bodyRadius * 0.3, bodyRadius * 0.6, bodyRadius * 1.1);
+    case "otter":
+    case "beaver":
+      drawOtterShape();
       break;
-    }
-    case "otter": {
-      state.ctx.fillStyle = style.detail;
-      state.ctx.fillRect(centerX - bodyRadius * 0.5, centerY + bodyRadius * 0.2, bodyRadius, bodyRadius * 0.9);
-      state.ctx.fillStyle = style.accent;
-      state.ctx.fillRect(centerX - bodyRadius * 0.1, centerY - bodyRadius * 0.8, bodyRadius * 0.2, bodyRadius * 0.7);
+    case "duck":
+      drawDuckShape();
       break;
-    }
-    case "crab": {
-      state.ctx.fillStyle = style.accent;
-      state.ctx.fillRect(centerX - bodyRadius * 1.2, centerY - bodyRadius * 0.2, bodyRadius * 0.6, bodyRadius * 0.6);
-      state.ctx.fillRect(centerX + bodyRadius * 0.6, centerY - bodyRadius * 0.2, bodyRadius * 0.6, bodyRadius * 0.6);
-      state.ctx.fillStyle = style.detail;
-      state.ctx.fillRect(centerX - bodyRadius * 0.8, centerY + bodyRadius * 0.4, bodyRadius * 1.6, bodyRadius * 0.2);
+    default:
+      drawDefaultShape();
       break;
-    }
-    case "frog": {
-      state.ctx.fillStyle = style.detail;
-      state.ctx.beginPath();
-      state.ctx.arc(centerX - bodyRadius * 0.45, centerY - bodyRadius * 0.7, bodyRadius * 0.35, 0, Math.PI * 2);
-      state.ctx.arc(centerX + bodyRadius * 0.45, centerY - bodyRadius * 0.7, bodyRadius * 0.35, 0, Math.PI * 2);
-      state.ctx.fill();
-      state.ctx.fillStyle = style.accent;
-      state.ctx.fillRect(centerX - bodyRadius * 0.8, centerY + bodyRadius * 0.2, bodyRadius * 1.6, bodyRadius * 0.4);
-      break;
-    }
-    default: {
-      state.ctx.fillStyle = style.accent;
-      state.ctx.fillRect(centerX - bodyRadius * 0.5, centerY + bodyRadius * 0.2, bodyRadius, bodyRadius * 0.5);
-    }
   }
 
   state.ctx.restore();
@@ -1305,11 +1433,12 @@ function drawMayor() {
   const time = (state.lastFrameTimestamp ?? 0) / 1000;
   const idleBob = Math.sin((state.lastFrameTimestamp ?? 0) / 320) * 1.5;
   const bouncePhase = isMoving ? state.mayor.walkPhase : time * 0.6;
-  const bounce = fxConfig.mayorBounceEnabled ? Math.sin(bouncePhase * 2) * (isMoving ? 3 : 1.5) : 0;
-  const tilt = fxConfig.mayorBounceEnabled ? Math.sin(bouncePhase) * (Math.PI / 180) * 2 : 0;
-  const scale = fxConfig.mayorBounceEnabled ? 1 + Math.sin(bouncePhase * 2) * (isMoving ? 0.03 : 0.015) : 1;
-  const bodyRadius = state.mayor.width * 0.32;
-  const glowRadius = state.mayor.width * 0.56;
+  const bounce = fxConfig.mayorBounceEnabled ? Math.sin(bouncePhase * 2) * (isMoving ? 2.2 : 1.2) : 0;
+  const tilt = fxConfig.mayorBounceEnabled ? Math.sin(bouncePhase) * (Math.PI / 180) * 1.4 : 0;
+  const scale = fxConfig.mayorBounceEnabled ? 1 + Math.sin(bouncePhase * 2) * (isMoving ? 0.02 : 0.01) : 1;
+  const bodyRadius = state.mayor.width * 0.34;
+  const glowRadius = state.mayor.width * 0.58;
+  const outlineColor = adjustBrightness(MAYOR_BODY, -0.28);
 
   state.ctx.save();
   const baseY = centerY + bounce + idleBob;
@@ -1321,53 +1450,115 @@ function drawMayor() {
 
   // soft glow halo
   state.ctx.beginPath();
-  state.ctx.arc(centerX, baseY + 4, glowRadius, 0, Math.PI * 2);
+  state.ctx.arc(centerX, baseY + 6, glowRadius, 0, Math.PI * 2);
   state.ctx.closePath();
   state.ctx.fillStyle = MAYOR_GLOW;
   state.ctx.fill();
 
-  // body
+  // dome head
   state.ctx.beginPath();
-  state.ctx.arc(centerX, baseY, bodyRadius, 0, Math.PI * 2);
+  state.ctx.ellipse(centerX, baseY - bodyRadius * 0.6, bodyRadius * 1.05, bodyRadius * 0.9, 0, Math.PI, 0, true);
   state.ctx.closePath();
   state.ctx.fillStyle = MAYOR_BODY;
   state.ctx.fill();
-
-  // suit jacket
-  const suitHeight = bodyRadius * 1.25;
-  state.ctx.fillStyle = MAYOR_SUIT;
-  state.ctx.fillRect(centerX - bodyRadius, baseY, bodyRadius * 2, suitHeight);
-
-  // tie
-  state.ctx.fillStyle = MAYOR_ACCENT;
-  state.ctx.beginPath();
-  state.ctx.moveTo(centerX - 3, baseY + 4);
-  state.ctx.lineTo(centerX + 3, baseY + 4);
-  state.ctx.lineTo(centerX, baseY + 16);
-  state.ctx.closePath();
-  state.ctx.fill();
-
-  // hat brim
-  state.ctx.fillStyle = MAYOR_HAT;
-  state.ctx.fillRect(centerX - bodyRadius * 0.9, baseY - bodyRadius * 1.2, bodyRadius * 1.8, 4);
-  // hat crown
-  state.ctx.fillRect(centerX - bodyRadius * 0.55, baseY - bodyRadius * 1.65, bodyRadius * 1.1, bodyRadius * 0.8);
-
-  // monocle and eye
-  state.ctx.beginPath();
-  state.ctx.arc(centerX + bodyRadius * 0.35, baseY - 4, 4, 0, Math.PI * 2);
-  state.ctx.closePath();
-  state.ctx.strokeStyle = MAYOR_MONOCLE;
+  state.ctx.strokeStyle = outlineColor;
   state.ctx.lineWidth = 2;
   state.ctx.stroke();
 
+  // mantle
   state.ctx.beginPath();
-  state.ctx.arc(centerX + bodyRadius * 0.2, baseY - 4, 1.5, 0, Math.PI * 2);
-  state.ctx.closePath();
+  state.ctx.ellipse(centerX, baseY + bodyRadius * 0.05, bodyRadius * 1.05, bodyRadius, 0, 0, Math.PI * 2);
+  state.ctx.fillStyle = MAYOR_BODY;
+  state.ctx.fill();
+  state.ctx.strokeStyle = outlineColor;
+  state.ctx.lineWidth = 2;
+  state.ctx.stroke();
+
+  // tentacles
+  const tentacleCount = 4;
+  for (let i = 0; i < tentacleCount; i += 1) {
+    const offset = (i - (tentacleCount - 1) / 2) * (bodyRadius * 0.55);
+    const tentacleY = baseY + bodyRadius * 0.8;
+    state.ctx.beginPath();
+    state.ctx.moveTo(centerX + offset - bodyRadius * 0.2, tentacleY);
+    state.ctx.quadraticCurveTo(centerX + offset, tentacleY + bodyRadius * 0.65, centerX + offset + bodyRadius * 0.25, tentacleY);
+    state.ctx.lineTo(centerX + offset + bodyRadius * 0.25, tentacleY - bodyRadius * 0.25);
+    state.ctx.quadraticCurveTo(centerX + offset, tentacleY - bodyRadius * 0.5, centerX + offset - bodyRadius * 0.2, tentacleY - bodyRadius * 0.25);
+    state.ctx.closePath();
+    state.ctx.fillStyle = MAYOR_SUIT;
+    state.ctx.fill();
+    state.ctx.strokeStyle = adjustBrightness(MAYOR_SUIT, -0.2);
+    state.ctx.lineWidth = 1.6;
+    state.ctx.stroke();
+  }
+
+  // face details
+  const eyeY = baseY - bodyRadius * 0.4;
   state.ctx.fillStyle = "#0b0b0f";
+  state.ctx.beginPath();
+  state.ctx.arc(centerX - bodyRadius * 0.25, eyeY, 2.4, 0, Math.PI * 2);
   state.ctx.fill();
 
+  state.ctx.beginPath();
+  state.ctx.arc(centerX + bodyRadius * 0.28, eyeY, 3.4, 0, Math.PI * 2);
+  state.ctx.strokeStyle = MAYOR_MONOCLE;
+  state.ctx.lineWidth = 2;
+  state.ctx.stroke();
+  state.ctx.fillStyle = "#0b0b0f";
+  state.ctx.beginPath();
+  state.ctx.arc(centerX + bodyRadius * 0.28, eyeY, 1.8, 0, Math.PI * 2);
+  state.ctx.fill();
+
+  // smile hint
+  state.ctx.strokeStyle = adjustBrightness(MAYOR_BODY, -0.18);
+  state.ctx.lineWidth = 1.4;
+  state.ctx.beginPath();
+  state.ctx.arc(centerX, baseY - bodyRadius * 0.2, bodyRadius * 0.32, Math.PI * 0.1, Math.PI * 0.9);
+  state.ctx.stroke();
+
   state.ctx.restore();
+}
+
+function drawChatBubbles() {
+  if (!state.ctx) return;
+  const ctx = state.ctx;
+  const deltaMs = state.lastDeltaMs || 16;
+  for (let i = chatBubbles.length - 1; i >= 0; i -= 1) {
+    const bubble = chatBubbles[i];
+    bubble.remaining -= deltaMs;
+    bubble.y -= deltaMs * 0.012;
+    if (bubble.remaining <= 0) {
+      chatBubbles.splice(i, 1);
+      continue;
+    }
+
+    const alpha = Math.max(0, bubble.remaining / bubble.total);
+    const paddingX = 6;
+    const paddingY = 4;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, alpha * 1.2);
+    ctx.font = "12px 'Segoe UI', system-ui, sans-serif";
+    const textWidth = ctx.measureText(bubble.text).width;
+    const bubbleWidth = textWidth + paddingX * 2;
+    const bubbleHeight = 18;
+    const x = bubble.x - bubbleWidth / 2;
+    const y = bubble.y - bubbleHeight - 6;
+
+    ctx.fillStyle = "rgba(10, 18, 24, 0.75)";
+    ctx.strokeStyle = "rgba(240, 250, 255, 0.4)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect?.(x, y, bubbleWidth, bubbleHeight, 6);
+    if (!ctx.roundRect) {
+      ctx.rect(x, y, bubbleWidth, bubbleHeight);
+    }
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#e8f2ff";
+    ctx.fillText(bubble.text, bubble.x - textWidth / 2, y + bubbleHeight - paddingY);
+    ctx.restore();
+  }
 }
 
 function drawEdgeVignette() {
@@ -1388,15 +1579,16 @@ function drawPixelGrid() {
   if (!state.ctx || !state.canvas || !fxConfig.pixelGridEnabled) return;
   const ctx = state.ctx;
   ctx.save();
-  ctx.strokeStyle = "rgba(255,255,255,0.04)";
+  ctx.strokeStyle = "rgba(255,255,255,0.025)";
   ctx.lineWidth = 1;
-  for (let x = 0; x <= state.canvas.width; x += TILE_SIZE) {
+  const spacing = TILE_SIZE * 2;
+  for (let x = 0; x <= state.canvas.width; x += spacing) {
     ctx.beginPath();
     ctx.moveTo(x + 0.5, 0);
     ctx.lineTo(x + 0.5, state.canvas.height);
     ctx.stroke();
   }
-  for (let y = 0; y <= state.canvas.height; y += TILE_SIZE) {
+  for (let y = 0; y <= state.canvas.height; y += spacing) {
     ctx.beginPath();
     ctx.moveTo(0, y + 0.5);
     ctx.lineTo(state.canvas.width, y + 0.5);
@@ -1409,24 +1601,18 @@ function drawScanlines() {
   if (!state.ctx || !state.canvas || !fxConfig.crtEnabled) return;
   const ctx = state.ctx;
   ctx.save();
-  ctx.globalAlpha = 0.08;
+  ctx.globalAlpha = 0.04;
   ctx.strokeStyle = "#000";
   ctx.lineWidth = 1;
-  for (let y = 0; y < state.canvas.height; y += 3) {
+  for (let y = 0; y < state.canvas.height; y += 4) {
     ctx.beginPath();
     ctx.moveTo(0, y + 0.5);
     ctx.lineTo(state.canvas.width, y + 0.5);
     ctx.stroke();
   }
-  ctx.globalAlpha = 0.12;
-  ctx.strokeStyle = "rgba(255,255,255,0.08)";
-  const inset = 6;
-  ctx.beginPath();
-  ctx.roundRect?.(inset, inset, state.canvas.width - inset * 2, state.canvas.height - inset * 2, 8);
-  if (!ctx.roundRect) {
-    ctx.rect(inset, inset, state.canvas.width - inset * 2, state.canvas.height - inset * 2);
-  }
-  ctx.stroke();
+  ctx.globalAlpha = 0.06;
+  ctx.strokeStyle = "rgba(255,255,255,0.05)";
+  ctx.strokeRect(4.5, 4.5, state.canvas.width - 9, state.canvas.height - 9);
   ctx.restore();
 }
 
@@ -1523,6 +1709,7 @@ function render() {
   drawProps();
   drawNpcs();
   drawMayor();
+  drawChatBubbles();
   state.ctx.restore();
 
   drawEdgeVignette();
@@ -1546,6 +1733,7 @@ function gameLoop(timestamp) {
   }
 
   updateMayor(deltaMs);
+  updateGreetHint();
   render();
   updateHudStats();
 
@@ -1634,6 +1822,7 @@ async function init() {
   state.ui.controlsOverlay = document.getElementById("controlsOverlay");
   state.ui.overlayPanel = state.ui.overlay?.querySelector?.(".panel") ?? null;
   state.ui.btnCloseControls = document.getElementById("btnCloseControls");
+  state.ui.greetHint = document.getElementById("greetHint");
 
   state.canvas = document.getElementById("game");
   state.ctx = state.canvas ? state.canvas.getContext("2d") : null;
