@@ -95,7 +95,28 @@ const propPalette = {
   foliage: "#5fa36e",
   foliageDark: "#3d6f49",
   accent: "#d3e4ed",
+  coral: "#ff8f8f",
+  coralDeep: "#e26b6b",
+  riverJunk: "#5c5144",
+  riverJunkDark: "#3d332a",
 };
+
+const PROP_SHADOW_COLOR = "rgba(0, 0, 0, 0.22)";
+const PROP_SHADOW_BLUR = 6;
+const SWAY_TYPES = new Set(["lamp", "sign", "planter", "coral"]);
+
+const fxConfig = {
+  vignetteEnabled: true,
+  crtEnabled: true,
+  pixelGridEnabled: true,
+  windSwayEnabled: true,
+  mayorBounceEnabled: true,
+};
+
+const movementSmoothingMs = 12;
+const hudFadeDurationMs = 140;
+const shakeDefaults = { duration: 90, magnitude: 3 };
+const shakeOffset = { x: 0, y: 0 };
 
 const keys = {
   ArrowUp: false,
@@ -107,6 +128,9 @@ const keys = {
   KeyS: false,
   KeyD: false,
   Space: false,
+  KeyM: false,
+  KeyP: false,
+  KeyC: false,
 };
 
 const state = {
@@ -122,6 +146,9 @@ const state = {
     width: 48,
     height: 48,
     speed: 150,
+    velX: 0,
+    velY: 0,
+    walkPhase: 0,
   },
   npcs: [],
   pendingTasks: [],
@@ -133,6 +160,11 @@ const state = {
     goodwill: 0,
   },
   accumulatedMs: 0,
+  screenShake: { remaining: 0, duration: 0, magnitude: 0 },
+  controlsVisible: false,
+  hudPulseTimeout: null,
+  lastDeltaMs: 0,
+  hudText: "",
   ui: {},
   canvas: null,
   ctx: null,
@@ -159,6 +191,7 @@ let gridRows = 0;
 let worldTiles = [];
 let worldTileColors = [];
 let shorelineMask = [];
+let groundDetails = [];
 let buildings = [];
 let props = [];
 
@@ -272,7 +305,23 @@ function updateHudStats() {
     taskText = "Task: Available (check mailbox)";
   }
 
-  state.ui.stats.textContent = `Day ${state.day} — ${formattedTime} — ${taskText}`;
+  const nextText = `Day ${state.day} — ${formattedTime} — ${taskText}`;
+  if (state.hudText !== nextText) {
+    state.hudText = nextText;
+    state.ui.stats.textContent = nextText;
+
+    state.ui.stats.classList.remove("hud-pulse");
+    if (state.hudPulseTimeout) {
+      clearTimeout(state.hudPulseTimeout);
+    }
+    // trigger fade-in pulse when the text changes
+    void state.ui.stats.offsetWidth;
+    state.ui.stats.classList.add("hud-pulse");
+    state.hudPulseTimeout = window.setTimeout(() => {
+      state.ui.stats?.classList.remove("hud-pulse");
+      state.hudPulseTimeout = null;
+    }, hudFadeDurationMs + 40);
+  }
 }
 
 function updateButtonStates() {
@@ -284,10 +333,31 @@ function updateButtonStates() {
 
 function showOverlay() {
   state.ui.overlay?.classList.remove("hidden");
+  const panel = state.ui.overlayPanel;
+  if (panel) {
+    panel.classList.remove("pop");
+    // force reflow to retrigger animation
+    void panel.offsetWidth;
+    panel.classList.add("pop");
+  }
 }
 
 function hideOverlay() {
   state.ui.overlay?.classList.add("hidden");
+}
+
+function toggleControlsOverlay(forceVisible) {
+  const target = typeof forceVisible === "boolean" ? forceVisible : !state.controlsVisible;
+  state.controlsVisible = target;
+  if (!state.ui.controlsOverlay) return;
+  if (target && state.ui.overlay && !state.ui.overlay.classList.contains("hidden")) {
+    hideOverlay();
+  }
+  if (target) {
+    state.ui.controlsOverlay.classList.remove("hidden");
+  } else {
+    state.ui.controlsOverlay.classList.add("hidden");
+  }
 }
 
 // ===== Tasks & Mailbox =====
@@ -367,6 +437,7 @@ function onNextTaskClicked() {
 
 function openMailboxPanel(note = "", options = {}) {
   const playSound = options.playSound !== false;
+  toggleControlsOverlay(false);
   if (playSound) {
     playSfx("mailOpen");
   }
@@ -437,6 +508,7 @@ function tryCompleteTask() {
   }
   openMailboxPanel("Task completed! Check your mailbox for new letters.", { playSound: false });
   playSfx("taskComplete");
+  startScreenShake();
   updateHudStats();
 }
 
@@ -508,9 +580,31 @@ function onKeyDown(event) {
   if (event.code in keys) {
     keys[event.code] = true;
   }
-  if (event.code === "Space") {
-    event.preventDefault();
-    greetAttempt();
+  switch (event.code) {
+    case "Space":
+      event.preventDefault();
+      greetAttempt();
+      break;
+    case "KeyM":
+      event.preventDefault();
+      openMailboxPanel();
+      break;
+    case "KeyP":
+      state.running = !state.running;
+      updateButtonStates();
+      updateHudStats();
+      break;
+    case "KeyC":
+      event.preventDefault();
+      toggleControlsOverlay();
+      break;
+    case "Escape":
+      if (state.controlsVisible) {
+        toggleControlsOverlay(false);
+      }
+      break;
+    default:
+      break;
   }
 }
 
@@ -559,6 +653,11 @@ function tileNoise(row, col) {
   return n - Math.floor(n);
 }
 
+function seededNoise(row, col, offset = 0) {
+  const n = Math.sin(row * 157.1 + col * 263.2 + offset * 37.7) * 43758.5453;
+  return n - Math.floor(n);
+}
+
 function adjustBrightness(hex, factor) {
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
@@ -592,6 +691,7 @@ function buildWorldTiles() {
   worldTiles = Array.from({ length: gridRows }, () => Array.from({ length: gridCols }, () => 0));
   worldTileColors = Array.from({ length: gridRows }, () => Array.from({ length: gridCols }, () => tilePalette.grassBase));
   shorelineMask = Array.from({ length: gridRows }, () => Array.from({ length: gridCols }, () => 0));
+  groundDetails = [];
 
   const midRow = Math.floor(gridRows / 2);
   for (let col = 0; col < gridCols; col += 1) {
@@ -612,6 +712,18 @@ function buildWorldTiles() {
   for (let row = 0; row < gridRows; row += 1) {
     for (let col = 0; col < gridCols; col += 1) {
       worldTileColors[row][col] = computeTileColor(worldTiles[row][col], row, col);
+      const tile = worldTiles[row][col];
+      const baseNoise = tileNoise(row, col) - 0.5;
+      const cx = col * TILE_SIZE + TILE_SIZE * (0.3 + seededNoise(row, col, 1) * 0.4);
+      const cy = row * TILE_SIZE + TILE_SIZE * (0.3 + seededNoise(row, col, 2) * 0.4);
+
+      if (tile === 0 && baseNoise > 0.62) {
+        groundDetails.push({ type: "pebble", x: cx, y: cy, size: 2 + seededNoise(row, col, 3) * 3, alpha: 0.25 });
+      } else if (tile === 0 && baseNoise < -0.55) {
+        groundDetails.push({ type: "moss", x: cx, y: cy, size: 6 + seededNoise(row, col, 4) * 5, alpha: 0.18 });
+      } else if (tile !== 2 && Math.abs(baseNoise) > 0.35 && Math.abs(baseNoise) < 0.5) {
+        groundDetails.push({ type: "blade", x: cx, y: cy, size: 6 + seededNoise(row, col, 5) * 4, alpha: 0.28 });
+      }
     }
   }
 
@@ -691,7 +803,17 @@ function buildProps() {
     { type: "planter", x: TILE_SIZE * 1.5, y: TILE_SIZE * 1.2 },
     { type: "planter", x: TILE_SIZE * 11.5, y: TILE_SIZE * 1.2 },
     { type: "sign", x: TILE_SIZE * 1.4, y: TILE_SIZE * (gridRows - 2) + half * 0.4 },
+    { type: "barrel", x: TILE_SIZE * 2.3, y: TILE_SIZE * (gridRows - 2) + half * 0.1 },
+    { type: "barrel", x: TILE_SIZE * 2.8, y: TILE_SIZE * (gridRows - 2) + half * 0.45 },
+    { type: "coral", x: TILE_SIZE * 1.2, y: TILE_SIZE * (gridRows - 2) + half * 0.2 },
+    { type: "coral", x: TILE_SIZE * 2.0, y: TILE_SIZE * (gridRows - 2) - half * 0.2 },
+    { type: "junk", x: TILE_SIZE * 1.6, y: TILE_SIZE * (gridRows - 1) - half * 0.3 },
+    { type: "junk", x: TILE_SIZE * 2.2, y: TILE_SIZE * (gridRows - 1) - half * 0.6 },
+    { type: "sign", x: TILE_SIZE * 12.6, y: TILE_SIZE * 6.2 },
   ];
+
+  props = props.map((prop, idx) => ({ ...prop, swayPhase: seededNoise(idx, idx, 7) * Math.PI * 2 }));
+  props.sort((a, b) => a.y - b.y);
 }
 
 function initNpcs() {
@@ -767,6 +889,36 @@ function drawTiles() {
   }
 }
 
+function drawGroundDetails() {
+  const ctx = state.ctx;
+  if (!ctx) return;
+  for (const detail of groundDetails) {
+    ctx.save();
+    if (detail.type === "pebble") {
+      ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
+      ctx.globalAlpha = detail.alpha ?? 0.25;
+      ctx.beginPath();
+      ctx.arc(detail.x, detail.y, detail.size ?? 3, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (detail.type === "moss") {
+      ctx.fillStyle = "rgba(40, 84, 52, 0.28)";
+      ctx.globalAlpha = detail.alpha ?? 0.2;
+      ctx.beginPath();
+      ctx.ellipse(detail.x, detail.y, (detail.size ?? 6) * 1.2, detail.size ?? 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (detail.type === "blade") {
+      ctx.strokeStyle = "rgba(129, 179, 113, 0.5)";
+      ctx.lineWidth = 1;
+      const len = detail.size ?? 8;
+      ctx.beginPath();
+      ctx.moveTo(detail.x, detail.y);
+      ctx.lineTo(detail.x, detail.y - len);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
 function drawWaterTile(row, col) {
   const ctx = state.ctx;
   if (!ctx) return;
@@ -784,6 +936,8 @@ function drawWaterTile(row, col) {
   ctx.fillStyle = tilePalette.waterLight;
   ctx.fillRect(x, y + TILE_SIZE * 0.25 + waveOffset, TILE_SIZE, 5);
   ctx.fillRect(x, y + TILE_SIZE * 0.6 - waveOffset, TILE_SIZE, 4);
+  const shimmerOffset = Math.sin((state.lastFrameTimestamp ?? 0) / 700 + col * 0.4 + row * 0.2) * 3;
+  ctx.fillRect(x, y + TILE_SIZE * 0.45 + shimmerOffset, TILE_SIZE, 2);
   ctx.globalAlpha = 1;
 
   const mask = shorelineMask[row][col] ?? 0;
@@ -825,6 +979,11 @@ function drawBuildings() {
     state.ctx.fillStyle = roofHighlight;
     state.ctx.fillRect(b.x + 2, b.y + 2, b.width - 4, 4);
 
+    // subtle outline
+    state.ctx.strokeStyle = adjustBrightness(wallColor, -0.35);
+    state.ctx.lineWidth = 1.5;
+    state.ctx.strokeRect(b.x - 1, b.y + roofHeight - 1, b.width + 2, b.height - roofHeight + 2);
+
     // doorway band
     const doorWidth = Math.max(10, b.width * 0.14);
     const doorHeight = Math.max(14, b.height * 0.18);
@@ -844,6 +1003,22 @@ function drawBuildings() {
       const stripeY = b.y + roofHeight - 6;
       state.ctx.fillStyle = b.accent ?? buildingPalette.civicAccent;
       state.ctx.fillRect(b.x + 6, stripeY, b.width - 12, 4);
+
+      state.ctx.save();
+      state.ctx.globalAlpha = 0.35;
+      state.ctx.fillStyle = adjustBrightness(b.accent ?? buildingPalette.civicAccent, 0.25);
+      state.ctx.fillRect(b.x + 4, b.y + 4, b.width - 8, roofHeight * 0.5);
+      state.ctx.restore();
+
+      // cast shadow trapezoid
+      state.ctx.fillStyle = "rgba(0, 0, 0, 0.14)";
+      state.ctx.beginPath();
+      state.ctx.moveTo(b.x + b.width * 0.12, b.y + b.height);
+      state.ctx.lineTo(b.x + b.width * 0.88, b.y + b.height);
+      state.ctx.lineTo(b.x + b.width * 0.7, b.y + b.height + 10);
+      state.ctx.lineTo(b.x + b.width * 0.3, b.y + b.height + 10);
+      state.ctx.closePath();
+      state.ctx.fill();
 
       // crest
       const crestRadius = Math.max(6, b.width * 0.12);
@@ -928,9 +1103,92 @@ function drawSign(prop) {
   ctx.fillRect(prop.x - width / 2 + 6, prop.y + 6, width - 12, 4);
 }
 
+function drawBarrel(prop) {
+  const ctx = state.ctx;
+  if (!ctx) return;
+  const width = TILE_SIZE * 0.65;
+  const height = TILE_SIZE * 0.7;
+  const x = prop.x - width / 2;
+  const y = prop.y - height;
+  ctx.fillStyle = propPalette.woodDark;
+  ctx.fillRect(x, y, width, height);
+  ctx.fillStyle = propPalette.woodLight;
+  ctx.fillRect(x + 4, y + 6, width - 8, height - 12);
+  ctx.fillStyle = propPalette.metal;
+  ctx.fillRect(x, y + 8, width, 4);
+  ctx.fillRect(x, y + height - 12, width, 4);
+}
+
+function drawCoral(prop) {
+  const ctx = state.ctx;
+  if (!ctx) return;
+  const baseX = prop.x;
+  const baseY = prop.y;
+  ctx.fillStyle = propPalette.coralDeep;
+  ctx.beginPath();
+  ctx.arc(baseX - 6, baseY - 6, 8, 0, Math.PI * 2);
+  ctx.arc(baseX + 4, baseY - 4, 9, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = propPalette.coral;
+  ctx.beginPath();
+  ctx.arc(baseX - 2, baseY - 10, 6, 0, Math.PI * 2);
+  ctx.arc(baseX + 8, baseY - 12, 5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawJunk(prop) {
+  const ctx = state.ctx;
+  if (!ctx) return;
+  ctx.fillStyle = propPalette.riverJunk;
+  ctx.fillRect(prop.x - TILE_SIZE * 0.4, prop.y - TILE_SIZE * 0.15, TILE_SIZE * 0.8, TILE_SIZE * 0.12);
+  ctx.fillStyle = propPalette.riverJunkDark;
+  ctx.fillRect(prop.x - TILE_SIZE * 0.2, prop.y - TILE_SIZE * 0.25, TILE_SIZE * 0.5, TILE_SIZE * 0.08);
+  ctx.fillRect(prop.x - TILE_SIZE * 0.1, prop.y - TILE_SIZE * 0.35, TILE_SIZE * 0.3, TILE_SIZE * 0.06);
+}
+
+function drawPropShadow(prop) {
+  const ctx = state.ctx;
+  if (!ctx) return;
+  ctx.save();
+  ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
+  ctx.beginPath();
+  ctx.ellipse(prop.x, prop.y + TILE_SIZE * 0.08, TILE_SIZE * 0.45, TILE_SIZE * 0.16, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawEntityShadow(cx, cy, radiusX, radiusY, alpha = 0.22) {
+  const ctx = state.ctx;
+  if (!ctx) return;
+  const gradient = ctx.createRadialGradient(cx, cy, radiusX * 0.2, cx, cy, radiusX);
+  gradient.addColorStop(0, `rgba(0, 0, 0, ${alpha})`);
+  gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.save();
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + radiusY * 0.2, radiusX, radiusY, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 function drawProps() {
   if (!state.ctx) return;
   for (const prop of props) {
+    drawPropShadow(prop);
+    const time = (state.lastFrameTimestamp ?? 0) / 1000;
+    const swayAngle = fxConfig.windSwayEnabled && SWAY_TYPES.has(prop.type)
+      ? Math.sin(time * 0.8 + (prop.swayPhase ?? 0)) * (Math.PI / 180) * 4.5
+      : 0;
+
+    state.ctx.save();
+    state.ctx.translate(prop.x, prop.y);
+    if (swayAngle !== 0) {
+      state.ctx.rotate(swayAngle);
+    }
+    state.ctx.translate(-prop.x, -prop.y);
+    state.ctx.shadowColor = PROP_SHADOW_COLOR;
+    state.ctx.shadowBlur = PROP_SHADOW_BLUR;
+    state.ctx.shadowOffsetY = 2;
     switch (prop.type) {
       case "bench":
         drawBench(prop);
@@ -947,9 +1205,19 @@ function drawProps() {
       case "sign":
         drawSign(prop);
         break;
+      case "barrel":
+        drawBarrel(prop);
+        break;
+      case "coral":
+        drawCoral(prop);
+        break;
+      case "junk":
+        drawJunk(prop);
+        break;
       default:
         break;
     }
+    state.ctx.restore();
   }
 }
 
@@ -962,6 +1230,8 @@ function drawNpcSprite(npc) {
 
   state.ctx.save();
   state.ctx.translate(0, bob);
+
+  drawEntityShadow(centerX, centerY + npc.radius * 0.6, npc.radius * 1.1, npc.radius * 0.55, 0.22);
 
   // base body
   state.ctx.beginPath();
@@ -1031,23 +1301,34 @@ function drawMayor() {
   if (!state.ctx) return;
   const centerX = state.mayor.x + state.mayor.width / 2;
   const centerY = state.mayor.y + state.mayor.height / 2;
-  const bob = Math.sin((state.lastFrameTimestamp ?? 0) / 320) * 2;
+  const isMoving = Math.hypot(state.mayor.velX, state.mayor.velY) > 2;
+  const time = (state.lastFrameTimestamp ?? 0) / 1000;
+  const idleBob = Math.sin((state.lastFrameTimestamp ?? 0) / 320) * 1.5;
+  const bouncePhase = isMoving ? state.mayor.walkPhase : time * 0.6;
+  const bounce = fxConfig.mayorBounceEnabled ? Math.sin(bouncePhase * 2) * (isMoving ? 3 : 1.5) : 0;
+  const tilt = fxConfig.mayorBounceEnabled ? Math.sin(bouncePhase) * (Math.PI / 180) * 2 : 0;
+  const scale = fxConfig.mayorBounceEnabled ? 1 + Math.sin(bouncePhase * 2) * (isMoving ? 0.03 : 0.015) : 1;
   const bodyRadius = state.mayor.width * 0.32;
   const glowRadius = state.mayor.width * 0.56;
 
   state.ctx.save();
-  state.ctx.translate(0, bob);
+  const baseY = centerY + bounce + idleBob;
+  drawEntityShadow(centerX, baseY + state.mayor.height * 0.2, bodyRadius * 1.6, bodyRadius * 0.6, 0.24);
+  state.ctx.translate(centerX, baseY);
+  state.ctx.rotate(tilt);
+  state.ctx.scale(scale, scale);
+  state.ctx.translate(-centerX, -baseY);
 
   // soft glow halo
   state.ctx.beginPath();
-  state.ctx.arc(centerX, centerY + 4, glowRadius, 0, Math.PI * 2);
+  state.ctx.arc(centerX, baseY + 4, glowRadius, 0, Math.PI * 2);
   state.ctx.closePath();
   state.ctx.fillStyle = MAYOR_GLOW;
   state.ctx.fill();
 
   // body
   state.ctx.beginPath();
-  state.ctx.arc(centerX, centerY, bodyRadius, 0, Math.PI * 2);
+  state.ctx.arc(centerX, baseY, bodyRadius, 0, Math.PI * 2);
   state.ctx.closePath();
   state.ctx.fillStyle = MAYOR_BODY;
   state.ctx.fill();
@@ -1055,33 +1336,33 @@ function drawMayor() {
   // suit jacket
   const suitHeight = bodyRadius * 1.25;
   state.ctx.fillStyle = MAYOR_SUIT;
-  state.ctx.fillRect(centerX - bodyRadius, centerY, bodyRadius * 2, suitHeight);
+  state.ctx.fillRect(centerX - bodyRadius, baseY, bodyRadius * 2, suitHeight);
 
   // tie
   state.ctx.fillStyle = MAYOR_ACCENT;
   state.ctx.beginPath();
-  state.ctx.moveTo(centerX - 3, centerY + 4);
-  state.ctx.lineTo(centerX + 3, centerY + 4);
-  state.ctx.lineTo(centerX, centerY + 16);
+  state.ctx.moveTo(centerX - 3, baseY + 4);
+  state.ctx.lineTo(centerX + 3, baseY + 4);
+  state.ctx.lineTo(centerX, baseY + 16);
   state.ctx.closePath();
   state.ctx.fill();
 
   // hat brim
   state.ctx.fillStyle = MAYOR_HAT;
-  state.ctx.fillRect(centerX - bodyRadius * 0.9, centerY - bodyRadius * 1.2, bodyRadius * 1.8, 4);
+  state.ctx.fillRect(centerX - bodyRadius * 0.9, baseY - bodyRadius * 1.2, bodyRadius * 1.8, 4);
   // hat crown
-  state.ctx.fillRect(centerX - bodyRadius * 0.55, centerY - bodyRadius * 1.65, bodyRadius * 1.1, bodyRadius * 0.8);
+  state.ctx.fillRect(centerX - bodyRadius * 0.55, baseY - bodyRadius * 1.65, bodyRadius * 1.1, bodyRadius * 0.8);
 
   // monocle and eye
   state.ctx.beginPath();
-  state.ctx.arc(centerX + bodyRadius * 0.35, centerY - 4, 4, 0, Math.PI * 2);
+  state.ctx.arc(centerX + bodyRadius * 0.35, baseY - 4, 4, 0, Math.PI * 2);
   state.ctx.closePath();
   state.ctx.strokeStyle = MAYOR_MONOCLE;
   state.ctx.lineWidth = 2;
   state.ctx.stroke();
 
   state.ctx.beginPath();
-  state.ctx.arc(centerX + bodyRadius * 0.2, centerY - 4, 1.5, 0, Math.PI * 2);
+  state.ctx.arc(centerX + bodyRadius * 0.2, baseY - 4, 1.5, 0, Math.PI * 2);
   state.ctx.closePath();
   state.ctx.fillStyle = "#0b0b0f";
   state.ctx.fill();
@@ -1091,12 +1372,84 @@ function drawMayor() {
 
 function drawEdgeVignette() {
   if (!state.ctx || !state.canvas) return;
-  const thickness = 12;
-  state.ctx.fillStyle = "rgba(0, 0, 0, 0.15)";
-  state.ctx.fillRect(0, 0, state.canvas.width, thickness);
-  state.ctx.fillRect(0, state.canvas.height - thickness, state.canvas.width, thickness);
-  state.ctx.fillRect(0, 0, thickness, state.canvas.height);
-  state.ctx.fillRect(state.canvas.width - thickness, 0, thickness, state.canvas.height);
+  if (!fxConfig.vignetteEnabled) return;
+  const ctx = state.ctx;
+  const cx = state.canvas.width / 2;
+  const cy = state.canvas.height / 2;
+  const radius = Math.sqrt(cx * cx + cy * cy) * 1.2;
+  const gradient = ctx.createRadialGradient(cx, cy, radius * 0.35, cx, cy, radius);
+  gradient.addColorStop(0, "rgba(0,0,0,0)");
+  gradient.addColorStop(1, "rgba(0,0,0,0.35)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, state.canvas.width, state.canvas.height);
+}
+
+function drawPixelGrid() {
+  if (!state.ctx || !state.canvas || !fxConfig.pixelGridEnabled) return;
+  const ctx = state.ctx;
+  ctx.save();
+  ctx.strokeStyle = "rgba(255,255,255,0.04)";
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= state.canvas.width; x += TILE_SIZE) {
+    ctx.beginPath();
+    ctx.moveTo(x + 0.5, 0);
+    ctx.lineTo(x + 0.5, state.canvas.height);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= state.canvas.height; y += TILE_SIZE) {
+    ctx.beginPath();
+    ctx.moveTo(0, y + 0.5);
+    ctx.lineTo(state.canvas.width, y + 0.5);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawScanlines() {
+  if (!state.ctx || !state.canvas || !fxConfig.crtEnabled) return;
+  const ctx = state.ctx;
+  ctx.save();
+  ctx.globalAlpha = 0.08;
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 1;
+  for (let y = 0; y < state.canvas.height; y += 3) {
+    ctx.beginPath();
+    ctx.moveTo(0, y + 0.5);
+    ctx.lineTo(state.canvas.width, y + 0.5);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 0.12;
+  ctx.strokeStyle = "rgba(255,255,255,0.08)";
+  const inset = 6;
+  ctx.beginPath();
+  ctx.roundRect?.(inset, inset, state.canvas.width - inset * 2, state.canvas.height - inset * 2, 8);
+  if (!ctx.roundRect) {
+    ctx.rect(inset, inset, state.canvas.width - inset * 2, state.canvas.height - inset * 2);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function startScreenShake(duration = shakeDefaults.duration, magnitude = shakeDefaults.magnitude) {
+  state.screenShake = {
+    remaining: duration,
+    duration,
+    magnitude,
+  };
+}
+
+function applyScreenShake(deltaMs) {
+  if (state.screenShake.remaining <= 0) {
+    shakeOffset.x = 0;
+    shakeOffset.y = 0;
+    return shakeOffset;
+  }
+  state.screenShake.remaining = Math.max(0, state.screenShake.remaining - deltaMs);
+  const progress = state.screenShake.duration > 0 ? state.screenShake.remaining / state.screenShake.duration : 0;
+  const amp = state.screenShake.magnitude * progress;
+  shakeOffset.x = (Math.random() * 2 - 1) * amp;
+  shakeOffset.y = (Math.random() * 2 - 1) * amp;
+  return shakeOffset;
 }
 
 function collidesWithBuildings(x, y, width, height) {
@@ -1121,16 +1474,22 @@ function updateMayor(deltaMs) {
   if (keys.ArrowLeft || keys.KeyA) dx -= 1;
   if (keys.ArrowRight || keys.KeyD) dx += 1;
 
-  if (dx === 0 && dy === 0) return;
-
   if (dx !== 0 && dy !== 0) {
     const inv = 1 / Math.sqrt(2);
     dx *= inv;
     dy *= inv;
   }
 
-  const proposedX = state.mayor.x + dx * state.mayor.speed * deltaSeconds;
-  const proposedY = state.mayor.y + dy * state.mayor.speed * deltaSeconds;
+  const targetVX = dx * state.mayor.speed;
+  const targetVY = dy * state.mayor.speed;
+  const lerpFactor = Math.min(1, deltaMs / movementSmoothingMs);
+  state.mayor.velX += (targetVX - state.mayor.velX) * lerpFactor;
+  state.mayor.velY += (targetVY - state.mayor.velY) * lerpFactor;
+  if (Math.abs(state.mayor.velX) < 0.05) state.mayor.velX = 0;
+  if (Math.abs(state.mayor.velY) < 0.05) state.mayor.velY = 0;
+
+  const proposedX = state.mayor.x + state.mayor.velX * deltaSeconds;
+  const proposedY = state.mayor.y + state.mayor.velY * deltaSeconds;
   const minX = 0;
   const minY = 0;
   const maxX = (state.canvas?.width ?? 0) - state.mayor.width;
@@ -1142,6 +1501,11 @@ function updateMayor(deltaMs) {
     state.mayor.x = clampedX;
     state.mayor.y = clampedY;
   }
+
+  const movingMagnitude = Math.hypot(state.mayor.velX, state.mayor.velY);
+  if (movingMagnitude > 1) {
+    state.mayor.walkPhase = (state.mayor.walkPhase + deltaSeconds * 6) % (Math.PI * 2);
+  }
 }
 
 // ===== Render & Game Loop =====
@@ -1149,12 +1513,21 @@ function render() {
   if (!state.ctx || !state.canvas) return;
   state.ctx.clearRect(0, 0, state.canvas.width, state.canvas.height);
 
+  const shakeOffset = applyScreenShake(state.lastDeltaMs);
+  state.ctx.save();
+  state.ctx.translate(shakeOffset.x, shakeOffset.y);
+
   drawTiles();
+  drawGroundDetails();
   drawBuildings();
   drawProps();
   drawNpcs();
   drawMayor();
+  state.ctx.restore();
+
   drawEdgeVignette();
+  drawPixelGrid();
+  drawScanlines();
 }
 
 function gameLoop(timestamp) {
@@ -1166,6 +1539,7 @@ function gameLoop(timestamp) {
 
   const deltaMs = timestamp - state.lastFrameTimestamp;
   state.lastFrameTimestamp = timestamp;
+  state.lastDeltaMs = deltaMs;
 
   if (state.running) {
     updateTime(deltaMs);
@@ -1189,6 +1563,9 @@ function setupUI() {
   if (state.ui.btnOptions) {
     state.ui.btnOptions.addEventListener("click", onOptionsClicked);
   }
+  if (state.ui.btnControls) {
+    state.ui.btnControls.addEventListener("click", () => toggleControlsOverlay(true));
+  }
   if (state.ui.btnMailbox) {
     state.ui.btnMailbox.addEventListener("click", onMailboxClicked);
   }
@@ -1206,6 +1583,16 @@ function setupUI() {
   }
   if (state.ui.btnClose) {
     state.ui.btnClose.addEventListener("click", onCloseClicked);
+  }
+  if (state.ui.btnCloseControls) {
+    state.ui.btnCloseControls.addEventListener("click", () => toggleControlsOverlay(false));
+  }
+  if (state.ui.controlsOverlay) {
+    state.ui.controlsOverlay.addEventListener("click", (e) => {
+      if (e.target === state.ui.controlsOverlay) {
+        toggleControlsOverlay(false);
+      }
+    });
   }
 
   updateButtonStates();
@@ -1238,11 +1625,15 @@ async function init() {
   state.ui.btnPause = document.getElementById("btnPause");
   state.ui.btnMailbox = document.getElementById("btnMailbox");
   state.ui.btnOptions = document.getElementById("btnOptions");
+  state.ui.btnControls = document.getElementById("btnControls");
   state.ui.btnPrevTask = document.getElementById("btnPrevTask");
   state.ui.btnNextTask = document.getElementById("btnNextTask");
   state.ui.btnAccept = document.getElementById("btnAccept");
   state.ui.btnComplete = document.getElementById("btnComplete");
   state.ui.btnClose = document.getElementById("btnClose");
+  state.ui.controlsOverlay = document.getElementById("controlsOverlay");
+  state.ui.overlayPanel = state.ui.overlay?.querySelector?.(".panel") ?? null;
+  state.ui.btnCloseControls = document.getElementById("btnCloseControls");
 
   state.canvas = document.getElementById("game");
   state.ctx = state.canvas ? state.canvas.getContext("2d") : null;
