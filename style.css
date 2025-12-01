@@ -122,6 +122,12 @@ body {
   animation: hudPulse 140ms ease;
 }
 
+#taskHud {
+  font-size: 0.95rem;
+  opacity: 0.9;
+  margin-left: auto;
+}
+
 .canvas-frame {
   margin-top: 96px;
   padding: 16px 18px 20px;
@@ -144,6 +150,22 @@ body {
 #greetHint {
   position: absolute;
   left: 18px;
+  bottom: 18px;
+  padding: 9px 13px;
+  border-radius: 8px;
+  background: linear-gradient(145deg, rgba(10, 20, 30, 0.92), rgba(12, 36, 48, 0.9));
+  color: #f5fbff;
+  font-weight: 700;
+  font-size: 1.05rem;
+  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(121, 204, 255, 0.38);
+  letter-spacing: 0.015em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6), 0 0 6px rgba(0, 0, 0, 0.4);
+}
+
+#mailboxHint {
+  position: absolute;
+  right: 18px;
   bottom: 18px;
   padding: 9px 13px;
   border-radius: 8px;
