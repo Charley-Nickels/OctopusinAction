@@ -25,6 +25,8 @@ const GREET_RADIUS = 40;
 const NPC_RADIUS = 7;
 const DEFAULT_TIME_SPEED = 1;
 const FAST_TIME_SPEED = 4;
+const START_OF_DAY_MINUTES = 9 * 60;
+const END_OF_DAY_MINUTES = 17 * 60;
 const MAYOR_BODY = "#cbb3f2";
 const MAYOR_SUIT = "#b377c9";
 const MAYOR_ACCENT = "#f19db8";
@@ -154,8 +156,12 @@ const state = {
   timeMinutes: 8 * 60,
   day: 1,
   running: false,
+  isPaused: true,
+  timeTimerId: null,
+  minuteFraction: 0,
   timeSpeed: DEFAULT_TIME_SPEED,
   timeMode: "normal",
+  lastHour: 8,
   lastFrameTimestamp: null,
   loopStarted: false,
   mayor: {
@@ -183,7 +189,6 @@ const state = {
     budget: 0,
     goodwill: 0,
   },
-  accumulatedMs: 0,
   screenShake: { remaining: 0, duration: 0, magnitude: 0 },
   controlsVisible: false,
   hudPulseTimeout: null,
@@ -201,6 +206,10 @@ const state = {
   spawnPoint: null,
   daySummary: null,
   doorCooldown: 0,
+  mailboxOpen: false,
+  activeOverlay: null,
+  summaryShownToday: false,
+  summarySnapshot: [],
 };
 
 function normalizeTask(task) {
@@ -402,19 +411,75 @@ function isWorkHour(timeMinutes) {
   return hour >= 9 && hour <= 16;
 }
 
-function updateTime(deltaMs) {
-  if (state.timeSpeed <= 0) return;
-  state.accumulatedMs += deltaMs * state.timeSpeed;
+function startTimeTimer() {
+  if (state.timeTimerId !== null) return;
+  state.timeTimerId = window.setInterval(onTimeTick, 1000);
+}
 
-  while (state.accumulatedMs >= msPerIngameMinute) {
-    state.accumulatedMs -= msPerIngameMinute;
-    state.timeMinutes += 1;
+function stopTimeTimer() {
+  if (state.timeTimerId === null) return;
+  window.clearInterval(state.timeTimerId);
+  state.timeTimerId = null;
+}
 
-    if (state.timeMinutes >= 24 * 60) {
-      state.day += 1;
-      state.timeMinutes = 0;
-    }
+function onTimeTick() {
+  if (state.isPaused) return;
+  const minutesPerSecond = (1000 / msPerIngameMinute) * state.timeSpeed;
+  state.minuteFraction += minutesPerSecond;
+  let summaryTriggered = false;
+  while (state.minuteFraction >= 1 && !summaryTriggered) {
+    state.minuteFraction -= 1;
+    summaryTriggered = advanceOneMinute();
   }
+  if (summaryTriggered) {
+    state.minuteFraction = 0;
+  }
+}
+
+function advanceOneMinute() {
+  const prevHour = Math.floor(state.timeMinutes / 60) % 24;
+  state.timeMinutes += 1;
+  let summaryTriggered = false;
+
+  if (!state.summaryShownToday && state.timeMinutes >= END_OF_DAY_MINUTES) {
+    triggerDailySummary();
+    summaryTriggered = true;
+  }
+
+  if (state.timeMinutes >= 24 * 60) {
+    state.day += 1;
+    state.timeMinutes = state.timeMinutes % (24 * 60);
+    state.summaryShownToday = false;
+    state.lastHour = Math.floor(state.timeMinutes / 60);
+  }
+
+  const newHour = Math.floor(state.timeMinutes / 60) % 24;
+  if (newHour !== prevHour) {
+    state.lastHour = newHour;
+  }
+  return summaryTriggered;
+}
+
+function setTimeMode(mode) {
+  state.timeMode = mode;
+  if (mode === "paused") {
+    state.timeSpeed = 0;
+    state.running = false;
+    state.isPaused = true;
+    stopTimeTimer();
+  } else if (mode === "fast") {
+    state.timeSpeed = FAST_TIME_SPEED;
+    state.running = true;
+    state.isPaused = false;
+    startTimeTimer();
+  } else {
+    state.timeSpeed = DEFAULT_TIME_SPEED;
+    state.running = true;
+    state.isPaused = false;
+    startTimeTimer();
+  }
+  updateButtonStates();
+  updateHudStats();
 }
 
 function setTimeMode(mode) {
@@ -547,6 +612,14 @@ function showOverlay() {
 
 function hideOverlay() {
   state.ui.overlay?.classList.add("hidden");
+  if (state.activeOverlay === "summary") {
+    clearTasksForNextDay();
+    setTimeMode("normal");
+  }
+  if (state.activeOverlay === "mailbox") {
+    state.mailboxOpen = false;
+  }
+  state.activeOverlay = null;
 }
 
 function toggleControlsOverlay(forceVisible) {
@@ -566,18 +639,28 @@ function toggleControlsOverlay(forceVisible) {
 // ===== Tasks & Mailbox =====
 async function loadMailboxTasks() {
   const tasks = await loadJsonSafe("oia/data/mailbox_schema_v01/sample_tasks.json", []);
-  state.pendingTasks = tasks.map((task) => {
+  const seen = new Set();
+  state.pendingTasks = [];
+  for (const task of tasks) {
     const normalized = normalizeTask(task);
-    return { ...normalized, status: "new", state: "available", progress: 0 };
-  });
+    if (!normalized.id || seen.has(normalized.id)) continue;
+    seen.add(normalized.id);
+    state.pendingTasks.push({ ...normalized, status: "new", state: "available", progress: 0 });
+  }
 }
 
 function beginDay() {
   state.daySummary = null;
-  state.timeMinutes = 9 * 60;
+  state.timeMinutes = START_OF_DAY_MINUTES;
+  state.lastHour = Math.floor(state.timeMinutes / 60);
+  state.minuteFraction = 0;
   state.currentTask = null;
   state.completedTasks = [];
   state.pendingTasks = state.pendingTasks.map((t) => ({ ...t, state: "available", status: "new", progress: 0 }));
+  state.summaryShownToday = false;
+  state.summarySnapshot = [];
+  state.activeOverlay = null;
+  state.mailboxOpen = false;
   applyMap("town", getCurrentMap()?.spawn ?? state.spawnPoint ?? { x: 7, y: 6 });
   state.mayor.x = (state.spawnPoint?.x ?? 7) * TILE_SIZE;
   state.mayor.y = (state.spawnPoint?.y ?? 6) * TILE_SIZE;
@@ -587,28 +670,71 @@ function beginDay() {
 }
 
 function endDaySummary() {
-  const missed = state.pendingTasks.filter((t) => t.state !== "completed" && t.state !== "accepted");
-  const completed = [...state.completedTasks];
-  if (state.currentTask && state.currentTask.state === "completed") {
-    completed.push(state.currentTask);
-  }
-  state.daySummary = {
-    day: state.day,
-    completed,
-    missed,
-    goodwill: state.stats.goodwill,
-    budget: state.stats.budget,
+  triggerDailySummary();
+}
+
+function hasTaskId(taskId) {
+  if (!taskId) return false;
+  if (state.currentTask?.id === taskId) return true;
+  if (state.pendingTasks.some((t) => t.id === taskId)) return true;
+  if (state.completedTasks.some((t) => t.id === taskId)) return true;
+  return false;
+}
+
+function getAcceptedTasksSnapshot() {
+  const snapshot = [];
+  const seen = new Set();
+  const maybeAdd = (task) => {
+    if (!task?.id || seen.has(task.id)) return;
+    seen.add(task.id);
+    snapshot.push({ ...task });
   };
-  const lines = [
-    `End of Day ${state.day}`,
-    `Completed: ${completed.length}`,
-    `Missed: ${missed.length}`,
-    `Budget: ${state.stats.budget}`,
-  ];
-  openMailboxPanel(lines.join("\n"), { playSound: false });
-  setTimeMode("paused");
+  if (state.currentTask && (state.currentTask.state === "accepted" || state.currentTask.state === "completed")) {
+    maybeAdd(state.currentTask);
+  }
+  for (const task of state.completedTasks) {
+    maybeAdd(task);
+  }
+  return snapshot;
+}
+
+function clearTasksForNextDay() {
+  state.currentTask = null;
+  state.completedTasks = [];
+  state.pendingTasks = state.pendingTasks.map((t) => ({ ...t, state: "available", status: "new", progress: 0 }));
+  state.mailboxIndex = 0;
+  state.summarySnapshot = [];
   state.day += 1;
-  console.info("Day summary", state.daySummary);
+  state.summaryShownToday = false;
+  state.timeMinutes = START_OF_DAY_MINUTES;
+  state.lastHour = Math.floor(state.timeMinutes / 60);
+  state.minuteFraction = 0;
+}
+
+function showDailySummary(snapshot) {
+  state.summarySnapshot = snapshot.map((task) => ({ ...task }));
+  state.activeOverlay = "summary";
+  state.mailboxOpen = false;
+  setTimeMode("paused");
+  if (state.ui.overlayTitle) state.ui.overlayTitle.textContent = `Daily Summary — Day ${state.day}`;
+  if (state.ui.overlayBody) {
+    const lines = [`Accepted Tasks: ${snapshot.length}`];
+    snapshot.forEach((task, idx) => {
+      const title = task.title ?? task.body ?? "Task";
+      lines.push(`${idx + 1}. ${title}`);
+    });
+    state.ui.overlayBody.textContent = lines.join("\n");
+  }
+  setOverlayButtons({ acceptVisible: false, completeVisible: false });
+  setNavVisibility(false);
+  showOverlay();
+}
+
+function triggerDailySummary() {
+  if (state.summaryShownToday) return;
+  state.summaryShownToday = true;
+  const snapshot = getAcceptedTasksSnapshot();
+  showDailySummary(snapshot);
 }
 
 function setOverlayButtons({ acceptVisible, acceptDisabled = false, completeVisible, completeDisabled = false }) {
@@ -690,6 +816,9 @@ function onNextTaskClicked() {
 }
 
 function openMailboxPanel(note = "", options = {}) {
+  if (state.activeOverlay === "summary") return;
+  state.activeOverlay = "mailbox";
+  state.mailboxOpen = true;
   const playSound = options.playSound !== false;
   toggleControlsOverlay(false);
   if (playSound) {
@@ -777,6 +906,11 @@ function onAcceptClicked() {
     return;
   }
 
+  if (state.completedTasks.some((t) => t.id === task.id)) {
+    openMailboxPanel("Task already completed today.", { playSound: false });
+    return;
+  }
+
   if (state.currentTask && state.currentTask.state === "accepted" && state.currentTask.id !== task.id) {
     openMailboxPanel("You already have an active task. Complete it before accepting another.", { playSound: false });
     return;
@@ -812,6 +946,9 @@ function onCloseClicked() {
 }
 
 function onMailboxClicked() {
+  if (state.mailboxOpen && state.activeOverlay === "mailbox" && !state.ui.overlay?.classList.contains("hidden")) {
+    return;
+  }
   if (!isNearMailbox()) {
     openMailboxPanel("Walk up to the mailbox to check for tasks.", { playSound: false });
     return;
@@ -851,6 +988,9 @@ function onKeyDown(event) {
       break;
     case "KeyM":
       event.preventDefault();
+      if (state.mailboxOpen && state.activeOverlay === "mailbox" && !state.ui.overlay?.classList.contains("hidden")) {
+        break;
+      }
       if (isNearMailbox()) {
         openMailboxPanel();
       } else {
@@ -2570,10 +2710,6 @@ function gameLoop(timestamp) {
   state.lastFrameTimestamp = timestamp;
   state.lastDeltaMs = deltaMs;
 
-  if (state.running) {
-    updateTime(deltaMs);
-  }
-
   updateNpcSchedules(deltaMs);
   updateMayor(deltaMs);
   updateGreetHint();
@@ -2687,7 +2823,7 @@ async function init() {
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
   state.loopStarted = true;
-  setTimeMode("paused");
+  beginDay();
   window.requestAnimationFrame(gameLoop);
 }
 
