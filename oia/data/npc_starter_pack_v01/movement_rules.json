@@ -1,0 +1,6 @@
+{
+  "gridSize": 48,
+  "maxStep": 1,
+  "allowDiagonal": false,
+  "pathfinding": "greedy"
+}

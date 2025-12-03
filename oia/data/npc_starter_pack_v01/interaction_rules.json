@@ -1,0 +1,13 @@
+{
+  "greetRadius": 2,
+  "socialMessage": "Hello! Nice to see you in town.",
+  "workMessage": "Busy working on permits.",
+  "sleepMessage": "...zzz...",
+  "taskTriggers": [
+    {
+      "npcId": "clerk",
+      "time": "10:00",
+      "taskId": "t002"
+    }
+  ]
+}
