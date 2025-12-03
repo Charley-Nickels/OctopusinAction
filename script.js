@@ -76,30 +76,30 @@ const tileLegend = {
 };
 
 const tilePalette = {
-  grassBase: "#0d2d1c",
-  grassLight: "#114025",
-  pathBase: "#7b5537",
-  pathWarm: "#9a6b42",
-  pathEdge: "#c7924f",
-  waterDeep: "#0c2436",
-  waterMid: "#123750",
-  waterLight: "#1b4a69",
-  shoreLine: "#6db8d5",
+  grassBase: "#0c2f36",
+  grassLight: "#114454",
+  pathBase: "#5f6c6a",
+  pathWarm: "#7b918e",
+  pathEdge: "#c7d7d1",
+  waterDeep: "#0a2536",
+  waterMid: "#103b52",
+  waterLight: "#1f5f7a",
+  shoreLine: "#7ad7d8",
 };
 
 const buildingPalette = {
-  civicWall: "#6f86a5",
-  civicRoof: "#30435a",
-  civicAccent: "#d6e2ef",
-  shopWall: "#9b7953",
-  shopRoof: "#5e4936",
-  shopAccent: "#f1c07b",
-  houseWall: "#759461",
-  houseRoof: "#4c5d3d",
-  houseAccent: "#dbe7c8",
-  marketWall: "#a56b7c",
-  marketRoof: "#5f3b47",
-  shadow: "rgba(0, 0, 0, 0.18)",
+  civicWall: "#6c8da6",
+  civicRoof: "#2d4056",
+  civicAccent: "#ffe2bf",
+  shopWall: "#7ba6a5",
+  shopRoof: "#466369",
+  shopAccent: "#ffd3a1",
+  houseWall: "#6aa08d",
+  houseRoof: "#3f6152",
+  houseAccent: "#e7f5e7",
+  marketWall: "#7397b5",
+  marketRoof: "#3e566d",
+  shadow: "rgba(0, 0, 0, 0.14)",
 };
 
 const propPalette = {
@@ -477,22 +477,6 @@ function setTimeMode(mode) {
     state.running = true;
     state.isPaused = false;
     startTimeTimer();
-  }
-  updateButtonStates();
-  updateHudStats();
-}
-
-function setTimeMode(mode) {
-  state.timeMode = mode;
-  if (mode === "paused") {
-    state.timeSpeed = 0;
-    state.running = false;
-  } else if (mode === "fast") {
-    state.timeSpeed = FAST_TIME_SPEED;
-    state.running = true;
-  } else {
-    state.timeSpeed = DEFAULT_TIME_SPEED;
-    state.running = true;
   }
   updateButtonStates();
   updateHudStats();
@@ -2529,8 +2513,8 @@ function drawEdgeVignette() {
   const cy = state.canvas.height / 2;
   const radius = Math.sqrt(cx * cx + cy * cy) * 1.2;
   const gradient = ctx.createRadialGradient(cx, cy, radius * 0.38, cx, cy, radius);
-  gradient.addColorStop(0.22, "rgba(0,0,0,0)");
-  gradient.addColorStop(1, "rgba(0,0,0,0.12)");
+  gradient.addColorStop(0.22, "rgba(0, 40, 46, 0)");
+  gradient.addColorStop(1, "rgba(4, 51, 60, 0.16)");
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, state.canvas.width, state.canvas.height);
 }
@@ -2694,9 +2678,31 @@ function render() {
   drawChatBubbles();
   state.ctx.restore();
 
+  drawUnderwaterAtmosphere();
   drawEdgeVignette();
   drawPixelGrid();
   drawScanlines();
+}
+
+function drawUnderwaterAtmosphere() {
+  if (!state.ctx || !state.canvas) return;
+  const ctx = state.ctx;
+  const { width, height } = state.canvas;
+  ctx.save();
+  const ambient = ctx.createLinearGradient(0, 0, 0, height);
+  ambient.addColorStop(0, "rgba(58, 152, 175, 0.18)");
+  ambient.addColorStop(1, "rgba(12, 58, 76, 0.32)");
+  ctx.globalCompositeOperation = "soft-light";
+  ctx.fillStyle = ambient;
+  ctx.fillRect(0, 0, width, height);
+
+  const warmGlow = ctx.createRadialGradient(width * 0.75, height * 0.28, 32, width * 0.75, height * 0.28, width * 0.68);
+  warmGlow.addColorStop(0, "rgba(255, 214, 186, 0.24)");
+  warmGlow.addColorStop(1, "rgba(255, 214, 186, 0)");
+  ctx.globalCompositeOperation = "screen";
+  ctx.fillStyle = warmGlow;
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
 }
 
 function gameLoop(timestamp) {
