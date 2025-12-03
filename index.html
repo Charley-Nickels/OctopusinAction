@@ -11,16 +11,20 @@
     <div class="controls">
       <button id="btnStart">Start</button>
       <button id="btnPause">Pause</button>
+      <button id="btnFast">Fast-Forward</button>
       <button id="btnMailbox">Mailbox</button>
+      <button id="btnEndDay">End Day</button>
       <button id="btnOptions">Options</button>
       <button id="btnControls">Controls</button>
     </div>
     <div id="stats">Day 1 — 09:00</div>
+    <div id="taskHud" aria-live="polite"></div>
   </div>
 
   <div class="canvas-frame">
     <canvas id="game" width="768" height="432"></canvas>
     <div id="greetHint" class="hidden">Press Space to chat</div>
+    <div id="mailboxHint" class="hidden">Press M to open the mailbox</div>
   </div>
 
   <div id="overlay" class="hidden">
