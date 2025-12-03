@@ -482,6 +482,22 @@ function setTimeMode(mode) {
   updateHudStats();
 }
 
+function setTimeMode(mode) {
+  state.timeMode = mode;
+  if (mode === "paused") {
+    state.timeSpeed = 0;
+    state.running = false;
+  } else if (mode === "fast") {
+    state.timeSpeed = FAST_TIME_SPEED;
+    state.running = true;
+  } else {
+    state.timeSpeed = DEFAULT_TIME_SPEED;
+    state.running = true;
+  }
+  updateButtonStates();
+  updateHudStats();
+}
+
 // ===== HUD & UI Helpers =====
 function updateHudStats() {
   if (!state.ui.stats) return;
