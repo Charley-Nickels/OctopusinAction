@@ -2,28 +2,57 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Octopus In Action — Alpha v1.152j (Parity)</title>
+  <title>Octopus In Action — Alpha Loop v01</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <header id="siteNav" aria-label="Primary">
+    <nav>
+      <a href="#home" class="nav-link">Home</a>
+      <a href="#atlas" class="nav-link">AtlasStudio</a>
+      <a href="#oia" class="nav-link">Octopus in Action</a>
+      <a href="#decisions" class="nav-link">Decision Console</a>
+      <a href="#media" class="nav-link">Media</a>
+      <a href="#store" class="nav-link">Store</a>
+      <a href="#canon" class="nav-link">Canon</a>
+      <a href="#admin" class="nav-link">Admin</a>
+    </nav>
+    <form id="adminForm" class="admin-gate" autocomplete="off">
+      <label for="adminInput">Admin access</label>
+      <input id="adminInput" type="text" inputmode="text" aria-label="Admin access code">
+      <button id="btnAdmin" type="submit">Enter</button>
+      <span id="adminStatus" role="status" aria-live="polite"></span>
+    </form>
+  </header>
   <div id="hud">
-    <span class="title">Octopus In Action — Alpha v1.152j (Parity)</span>
-    <div class="controls">
-      <button id="btnStart">Start</button>
-      <button id="btnPause">Pause</button>
-      <button id="btnFast">Fast-Forward</button>
-      <button id="btnMailbox">Mailbox</button>
-      <button id="btnEndDay">End Day</button>
-      <button id="btnOptions">Options</button>
-      <button id="btnControls">Controls</button>
+    <div id="clockAndControls">
+      <div id="clockPanel" aria-live="polite">
+        <div id="dayLabel">Day 1</div>
+        <div id="timeLabel">07:00</div>
+        <div id="timeOfDayLabel" class="muted">Morning</div>
+        <div id="speedLabel">Paused</div>
+      </div>
+      <div id="timeControls" class="controls">
+        <button id="btnPause" aria-pressed="true">Pause</button>
+        <button id="btnPlay">Play</button>
+        <button id="btnFast">Fast-Forward</button>
+        <button id="btnMailbox">Mailbox</button>
+        <button id="btnEndDay">End Day</button>
+        <button id="btnControls">Controls</button>
+      </div>
+      <div id="messageArea" aria-live="polite"></div>
     </div>
-    <div id="stats">Day 1 — 09:00</div>
-    <div id="taskHud" aria-live="polite"></div>
+
+  <div id="tasksPanel">
+    <div class="panel-header">Active Tasks</div>
+    <div id="taskStatus" class="task-status"></div>
+    <ul id="taskList"></ul>
+  </div>
   </div>
 
   <div class="canvas-frame">
     <canvas id="game" width="768" height="432"></canvas>
-    <div id="greetHint" class="hidden">Press Space to chat</div>
+    <div id="greetHint" class="hidden">Press Space to interact</div>
     <div id="mailboxHint" class="hidden">Press M to open the mailbox</div>
   </div>
 
@@ -51,9 +80,10 @@
       </div>
       <ul class="controls-list">
         <li>WASD / Arrow Keys — Move</li>
-        <li>Space — Greet</li>
+        <li>Space — Interact</li>
         <li>M — Open Mailbox</li>
-        <li>P — Pause / Unpause</li>
+        <li>P — Pause / Play</li>
+        <li>F — Fast-Forward</li>
         <li>C — Toggle Controls</li>
       </ul>
     </div>
