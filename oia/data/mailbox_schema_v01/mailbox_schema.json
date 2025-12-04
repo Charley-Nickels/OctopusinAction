@@ -1,3 +1,65 @@
 {
-  "fields": ["task_id", "type", "requester", "building", "priority", "posted_at", "deadline", "description", "status", "reward"]
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OIA Mailbox Task Schema",
+  "description": "Schema for tasks posted in the Octopus in Action mailbox system.",
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "Unique identifier for the task."
+    },
+    "task_type": {
+      "type": "string",
+      "description": "Type of task (delivery, repair, meeting, etc.)."
+    },
+    "requester": {
+      "type": "string",
+      "description": "Name of the NPC or entity requesting the task."
+    },
+    "building": {
+      "type": "string",
+      "description": "Building associated with the task."
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3,
+      "description": "Priority level (1=high, 3=low)."
+    },
+    "posted_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the task was posted."
+    },
+    "deadline": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the task is due."
+    },
+    "description": {
+      "type": "string",
+      "description": "Task description and details."
+    },
+    "reward": {
+      "type": ["string", "null"],
+      "description": "Optional reward for completing the task."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["new", "accepted", "completed"],
+      "description": "Current status of the task."
+    }
+  },
+  "required": [
+    "task_id",
+    "task_type",
+    "requester",
+    "building",
+    "priority",
+    "posted_at",
+    "deadline",
+    "description",
+    "status"
+  ],
+  "additionalProperties": false
 }
