@@ -486,6 +486,52 @@ function setTimeMode(mode) {
   updateHudStats();
 }
 
+function advanceOneMinute() {
+  const prevHour = Math.floor(state.timeMinutes / 60) % 24;
+  state.timeMinutes += 1;
+  let summaryTriggered = false;
+
+  if (!state.summaryShownToday && state.timeMinutes >= END_OF_DAY_MINUTES) {
+    triggerDailySummary();
+    summaryTriggered = true;
+  }
+
+  if (state.timeMinutes >= 24 * 60) {
+    state.day += 1;
+    state.timeMinutes = state.timeMinutes % (24 * 60);
+    state.summaryShownToday = false;
+    state.lastHour = Math.floor(state.timeMinutes / 60);
+  }
+
+  const newHour = Math.floor(state.timeMinutes / 60) % 24;
+  if (newHour !== prevHour) {
+    state.lastHour = newHour;
+  }
+  return summaryTriggered;
+}
+
+function setTimeMode(mode) {
+  state.timeMode = mode;
+  if (mode === "paused") {
+    state.timeSpeed = 0;
+    state.running = false;
+    state.isPaused = true;
+    stopTimeTimer();
+  } else if (mode === "fast") {
+    state.timeSpeed = FAST_TIME_SPEED;
+    state.running = true;
+    state.isPaused = false;
+    startTimeTimer();
+  } else {
+    state.timeSpeed = DEFAULT_TIME_SPEED;
+    state.running = true;
+    state.isPaused = false;
+    startTimeTimer();
+  }
+  updateButtonStates();
+  updateHudStats();
+}
+
 // ===== HUD & UI Helpers =====
 function updateHudStats() {
   if (!state.ui.stats) return;
