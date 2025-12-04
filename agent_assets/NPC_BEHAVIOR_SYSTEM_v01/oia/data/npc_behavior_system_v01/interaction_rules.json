@@ -1,0 +1,73 @@
+{
+  "player_interaction": [
+    {
+      "trigger_state": "idle",
+      "action": "Face the player, play greeting dialogue, offer tasks if available."
+    },
+    {
+      "trigger_state": "work",
+      "action": "Briefly pause work to acknowledge the player, then resume work unless a task handoff occurs."
+    }
+  ],
+  "building_interaction": {
+    "City Hall": {
+      "on_arrival": "Mayor begins work; may generate administrative tasks.",
+      "on_leave": "Mayor posts summary tasks to mailbox."
+    },
+    "Post Office": {
+      "on_arrival": "Postmaster starts sorting mail and packages; generates delivery tasks.",
+      "on_leave": "Postmaster closes post office and sets new tasks for next day."
+    },
+    "Commercial": {
+      "on_arrival": "Shopkeeper opens shop; interacts with customers; may generate restocking tasks.",
+      "on_leave": "Shopkeeper reconciles sales and posts supply requests."
+    },
+    "Utilities": {
+      "on_arrival": "Maintenance Chief checks utilities; performs repairs; posts maintenance tasks.",
+      "on_leave": "Logs repairs and posts follow\u2011up tasks."
+    },
+    "Residential": {
+      "on_arrival": "Resident performs household tasks or errands; may post personal requests.",
+      "on_leave": "Resident posts feedback or thanks."
+    }
+  },
+  "task_generation": [
+    {
+      "npc": "Postmaster",
+      "times": [
+        "08:00",
+        "15:00"
+      ],
+      "task_type": "delivery",
+      "description": "Generate mail delivery task for players to collect and deliver packages."
+    },
+    {
+      "npc": "Maintenance Chief",
+      "times": [
+        "07:00",
+        "13:00"
+      ],
+      "task_type": "repair",
+      "description": "Generate repair or maintenance tasks for utilities and residential buildings."
+    },
+    {
+      "npc": "Shopkeeper",
+      "times": [
+        "09:00"
+      ],
+      "task_type": "restock",
+      "description": "Generate tasks to help restock shelves or deliver goods to customers."
+    },
+    {
+      "npc": "Mayor",
+      "times": [
+        "09:30"
+      ],
+      "task_type": "meeting",
+      "description": "Schedule meetings or administrative tasks requiring the player's participation."
+    }
+  ],
+  "social_interaction": {
+    "default": "During social periods (usually midday), NPCs wander near their current location and engage in short dialogues with nearby NPCs."
+  }
+}

@@ -1,0 +1,255 @@
+[
+  {
+    "name": "Mayor",
+    "species": "human",
+    "home": "City Hall",
+    "job": "Mayor",
+    "schedule": [
+      {
+        "time": "08:00",
+        "location": "Home"
+      },
+      {
+        "time": "09:00",
+        "location": "City Hall"
+      },
+      {
+        "time": "12:00",
+        "location": "City Hall"
+      },
+      {
+        "time": "18:00",
+        "location": "Home"
+      }
+    ],
+    "dialogue_starters": [
+      "Good day! Let's keep the town running smoothly.",
+      "Have you checked today's agenda?"
+    ],
+    "personality_flags": [
+      "leader",
+      "busy"
+    ],
+    "color_palette": {
+      "skin": "#f5cba7",
+      "hair": "#40332d",
+      "body": "#2e3a87",
+      "shirt": "#f4f4f4",
+      "pants": "#2e3a87",
+      "shoes": "#000000"
+    },
+    "sprites": {
+      "idle": [
+        "mayor/idle_1.png",
+        "mayor/idle_2.png"
+      ],
+      "walk": [
+        "mayor/walk_1.png",
+        "mayor/walk_2.png",
+        "mayor/walk_3.png",
+        "mayor/walk_4.png"
+      ],
+      "portrait": "mayor/portrait.png"
+    }
+  },
+  {
+    "name": "Postmaster",
+    "species": "human",
+    "home": "Residential",
+    "job": "Postmaster",
+    "schedule": [
+      {
+        "time": "07:00",
+        "location": "Home"
+      },
+      {
+        "time": "08:00",
+        "location": "Post Office"
+      },
+      {
+        "time": "17:00",
+        "location": "Home"
+      }
+    ],
+    "dialogue_starters": [
+      "Need a stamp? I've got you covered!",
+      "A new package has arrived for you."
+    ],
+    "personality_flags": [
+      "organized",
+      "helpful"
+    ],
+    "color_palette": {
+      "skin": "#f2d7b3",
+      "hair": "#5d4037",
+      "body": "#8b4513",
+      "shirt": "#d2b48c",
+      "pants": "#8b4513",
+      "shoes": "#3c1e0f"
+    },
+    "sprites": {
+      "idle": [
+        "postmaster/idle_1.png",
+        "postmaster/idle_2.png"
+      ],
+      "walk": [
+        "postmaster/walk_1.png",
+        "postmaster/walk_2.png",
+        "postmaster/walk_3.png",
+        "postmaster/walk_4.png"
+      ],
+      "portrait": "postmaster/portrait.png"
+    }
+  },
+  {
+    "name": "Shopkeeper",
+    "species": "human",
+    "home": "Residential",
+    "job": "Shopkeeper",
+    "schedule": [
+      {
+        "time": "08:00",
+        "location": "Home"
+      },
+      {
+        "time": "09:00",
+        "location": "Commercial"
+      },
+      {
+        "time": "19:00",
+        "location": "Home"
+      }
+    ],
+    "dialogue_starters": [
+      "Welcome! Take a look at our specials.",
+      "Stocking up never felt so good."
+    ],
+    "personality_flags": [
+      "friendly",
+      "entrepreneur"
+    ],
+    "color_palette": {
+      "skin": "#fad6a5",
+      "hair": "#403024",
+      "body": "#20b2aa",
+      "shirt": "#eee8aa",
+      "pants": "#20b2aa",
+      "shoes": "#1c544e"
+    },
+    "sprites": {
+      "idle": [
+        "shopkeeper/idle_1.png",
+        "shopkeeper/idle_2.png"
+      ],
+      "walk": [
+        "shopkeeper/walk_1.png",
+        "shopkeeper/walk_2.png",
+        "shopkeeper/walk_3.png",
+        "shopkeeper/walk_4.png"
+      ],
+      "portrait": "shopkeeper/portrait.png"
+    }
+  },
+  {
+    "name": "Maintenance Chief",
+    "species": "human",
+    "home": "Residential",
+    "job": "Maintenance Chief",
+    "schedule": [
+      {
+        "time": "06:00",
+        "location": "Home"
+      },
+      {
+        "time": "07:00",
+        "location": "Utilities"
+      },
+      {
+        "time": "16:00",
+        "location": "Home"
+      }
+    ],
+    "dialogue_starters": [
+      "Got a leak? I'll fix it.",
+      "Safety first, always!"
+    ],
+    "personality_flags": [
+      "practical",
+      "handy"
+    ],
+    "color_palette": {
+      "skin": "#f1c27d",
+      "hair": "#322823",
+      "body": "#708090",
+      "shirt": "#fad02c",
+      "pants": "#708090",
+      "shoes": "#1e1e1e"
+    },
+        "sprites": {
+        "idle": [
+        "maintenance_chief/idle_1.png",
+        "maintenance_chief/idle_2.png"
+      ],
+      "walk": [
+        "maintenance_chief/walk_1.png",
+        "maintenance_chief/walk_2.png",
+        "maintenance_chief/walk_3.png",
+        "maintenance_chief/walk_4.png"
+      ],
+      "portrait": "maintenance_chief/portrait.png"
+    }
+  },
+  {
+    "name": "Resident",
+    "species": "human",
+    "home": "Residential",
+    "job": "Resident",
+    "schedule": [
+      {
+        "time": "09:00",
+        "location": "Home"
+      },
+      {
+        "time": "10:00",
+        "location": "Commercial"
+      },
+      {
+        "time": "12:00",
+        "location": "Post Office"
+      },
+      {
+        "time": "18:00",
+        "location": "Home"
+      }
+    ],
+    "dialogue_starters": [
+      "Hi there! Nice day, isn't it?",
+      "Just running some errands."
+    ],
+    "personality_flags": [
+      "casual",
+      "curious"
+    ],
+    "color_palette": {
+      "skin": "#f9e2b5",
+      "hair": "#8b4513",
+      "body": "#ff8c00",
+      "shirt": "#ff8c00",
+      "pants": "#556b2f",
+      "shoes": "#32281e"
+    },
+    "sprites": {
+      "idle": [
+        "resident/idle_1.png",
+        "resident/idle_2.png"
+      ],
+      "walk": [
+        "resident/walk_1.png",
+        "resident/walk_2.png",
+        "resident/walk_3.png",
+        "resident/walk_4.png"
+      ],
+      "portrait": "resident/portrait.png"
+    }
+  }
+]

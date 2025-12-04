@@ -1,0 +1,94 @@
+{
+  "states": [
+    {
+      "name": "idle",
+      "action": "Stand in place, play idle animation, occasionally look around.",
+      "transitions": [
+        {
+          "condition": "scheduled_move",
+          "target": "move"
+        },
+        {
+          "condition": "player_interaction",
+          "target": "interact"
+        },
+        {
+          "condition": "bedtime",
+          "target": "sleep"
+        }
+      ]
+    },
+    {
+      "name": "move",
+      "action": "Pathfind to target location based on schedule.",
+      "transitions": [
+        {
+          "condition": "arrived_at_destination_and_work_time",
+          "target": "work"
+        },
+        {
+          "condition": "arrived_at_destination_and_social_time",
+          "target": "social"
+        },
+        {
+          "condition": "arrived_at_destination_and_home",
+          "target": "idle"
+        },
+        {
+          "condition": "player_interaction",
+          "target": "interact"
+        }
+      ]
+    },
+    {
+      "name": "work",
+      "action": "Perform job-specific actions at assigned building.",
+      "transitions": [
+        {
+          "condition": "work_period_over",
+          "target": "move"
+        },
+        {
+          "condition": "player_interaction",
+          "target": "interact"
+        }
+      ]
+    },
+    {
+      "name": "social",
+      "action": "Wander around, talk to nearby NPCs, generate social interactions.",
+      "transitions": [
+        {
+          "condition": "social_period_over",
+          "target": "move"
+        },
+        {
+          "condition": "player_interaction",
+          "target": "interact"
+        }
+      ]
+    },
+    {
+      "name": "sleep",
+      "action": "Return home and play sleep animation.",
+      "transitions": [
+        {
+          "condition": "wake_time",
+          "target": "idle"
+        }
+      ]
+    },
+    {
+      "name": "interact",
+      "action": "Face player, play interaction animation, display dialogue and optional task offering.",
+      "transitions": [
+        {
+          "condition": "interaction_finished",
+          "target": "idle"
+        }
+      ]
+    }
+  ],
+  "initial_state": "idle",
+  "description": "Deterministic state machine controlling NPC behaviour. Time\u2011based conditions trigger transitions between states."
+}

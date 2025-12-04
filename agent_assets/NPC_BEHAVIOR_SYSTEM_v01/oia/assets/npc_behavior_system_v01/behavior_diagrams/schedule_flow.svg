@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="150" font-family="sans-serif" font-size="12">
+<line x1="50" y1="80" x2="650" y2="80" stroke="black"/>
+<text x="45" y="95" text-anchor="end">00:00</text>
+<text x="655" y="95" text-anchor="start">24:00</text>
+<rect x="625.0" y="60" width="-400.0" height="40" fill="#B39DDB" stroke="black"/>
+<text x="425.0" y="85" text-anchor="middle">Sleep</text>
+<rect x="225.0" y="60" width="25.0" height="40" fill="#90CAF9" stroke="black"/>
+<text x="237.5" y="85" text-anchor="middle">Move</text>
+<rect x="250.0" y="60" width="100.0" height="40" fill="#FFCC80" stroke="black"/>
+<text x="300.0" y="85" text-anchor="middle">Work</text>
+<rect x="350.0" y="60" width="25.0" height="40" fill="#FFF59D" stroke="black"/>
+<text x="362.5" y="85" text-anchor="middle">Social</text>
+<rect x="375.0" y="60" width="100.0" height="40" fill="#FFCC80" stroke="black"/>
+<text x="425.0" y="85" text-anchor="middle">Work</text>
+<rect x="475.0" y="60" width="25.0" height="40" fill="#90CAF9" stroke="black"/>
+<text x="487.5" y="85" text-anchor="middle">Move</text>
+<rect x="500.0" y="60" width="125.0" height="40" fill="#C5E1A5" stroke="black"/>
+<text x="562.5" y="85" text-anchor="middle">Idle</text>
+<line x1="50.0" y1="75" x2="50.0" y2="85" stroke="gray"/>
+<text x="50.0" y="55" text-anchor="middle">00:00</text>
+<line x1="150.0" y1="75" x2="150.0" y2="85" stroke="gray"/>
+<text x="150.0" y="55" text-anchor="middle">04:00</text>
+<line x1="250.0" y1="75" x2="250.0" y2="85" stroke="gray"/>
+<text x="250.0" y="55" text-anchor="middle">08:00</text>
+<line x1="350.0" y1="75" x2="350.0" y2="85" stroke="gray"/>
+<text x="350.0" y="55" text-anchor="middle">12:00</text>
+<line x1="450.0" y1="75" x2="450.0" y2="85" stroke="gray"/>
+<text x="450.0" y="55" text-anchor="middle">16:00</text>
+<line x1="550.0" y1="75" x2="550.0" y2="85" stroke="gray"/>
+<text x="550.0" y="55" text-anchor="middle">20:00</text>
+<line x1="650.0" y1="75" x2="650.0" y2="85" stroke="gray"/>
+<text x="650.0" y="55" text-anchor="middle">24:00</text>
+</svg>

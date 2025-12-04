@@ -1,0 +1,74 @@
+[
+  {
+    "task_id": "T001",
+    "task_type": "delivery",
+    "requester": "Postmaster",
+    "building": "Post Office",
+    "priority": 2,
+    "posted_at": "2025-12-01T09:00:00Z",
+    "deadline": "2025-12-02T17:00:00Z",
+    "description": "Deliver official documents from the Post Office to the Mayor's office at City Hall.",
+    "reward": "50 coins",
+    "status": "new"
+  },
+  {
+    "task_id": "T002",
+    "task_type": "repair",
+    "requester": "Maintenance Chief",
+    "building": "Utilities",
+    "priority": 1,
+    "posted_at": "2025-12-01T10:30:00Z",
+    "deadline": "2025-12-01T18:00:00Z",
+    "description": "Fix the broken water pipe in the Residential building's basement.",
+    "reward": "40 coins",
+    "status": "new"
+  },
+  {
+    "task_id": "T003",
+    "task_type": "meeting",
+    "requester": "Mayor",
+    "building": "City Hall",
+    "priority": 2,
+    "posted_at": "2025-12-01T08:00:00Z",
+    "deadline": "2025-12-01T12:00:00Z",
+    "description": "Attend the scheduled town council meeting at City Hall.",
+    "reward": null,
+    "status": "new"
+  },
+  {
+    "task_id": "T004",
+    "task_type": "restock",
+    "requester": "Shopkeeper",
+    "building": "Commercial",
+    "priority": 3,
+    "posted_at": "2025-12-01T11:15:00Z",
+    "deadline": "2025-12-03T17:00:00Z",
+    "description": "Assist in restocking shelves at the commercial shop after the new shipment.",
+    "reward": "Free item voucher",
+    "status": "new"
+  },
+  {
+    "task_id": "T005",
+    "task_type": "delivery",
+    "requester": "Postmaster",
+    "building": "Residential",
+    "priority": 2,
+    "posted_at": "2025-12-01T13:00:00Z",
+    "deadline": "2025-12-01T20:00:00Z",
+    "description": "Deliver a parcel to Mrs. Smith in the residential building.",
+    "reward": "20 coins",
+    "status": "new"
+  },
+  {
+    "task_id": "T006",
+    "task_type": "maintenance",
+    "requester": "Maintenance Chief",
+    "building": "Utilities",
+    "priority": 2,
+    "posted_at": "2025-12-01T14:45:00Z",
+    "deadline": "2025-12-02T14:45:00Z",
+    "description": "Perform a routine maintenance check on the power generator in the Utilities building.",
+    "reward": "30 coins",
+    "status": "new"
+  }
+]
