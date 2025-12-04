@@ -180,6 +180,12 @@ function resetMovementKeys() {
   keys.KeyA = false;
   keys.KeyS = false;
   keys.KeyD = false;
+  if (state?.mayor?.input) {
+    state.mayor.input.up = false;
+    state.mayor.input.down = false;
+    state.mayor.input.left = false;
+    state.mayor.input.right = false;
+  }
 }
 
 const state = {
@@ -204,6 +210,7 @@ const state = {
     velX: 0,
     velY: 0,
     walkPhase: 0,
+    input: { up: false, down: false, left: false, right: false },
   },
   npcs: [],
   npcRules: {
@@ -1473,29 +1480,39 @@ function onEndDayClicked() {
 }
 
 function onKeyDown(event) {
+  const code = normalizeKey(event.code || event.key);
+  if (!code) return;
+  const isMovementKey =
+    code === "ArrowUp" ||
+    code === "ArrowDown" ||
+    code === "ArrowLeft" ||
+    code === "ArrowRight" ||
+    code === "KeyW" ||
+    code === "KeyA" ||
+    code === "KeyS" ||
+    code === "KeyD";
+
   if (event.target === state.ui.adminInput) {
+    if (!isMovementKey && code !== "Escape") return;
+    if (isMovementKey) {
+      state.ui.adminInput?.blur();
+    }
+  }
+
+  const overlayBlocks = state.activeOverlay || state.controlsVisible;
+  if (overlayBlocks && isMovementKey) {
+    resetMovementKeys();
     return;
   }
-  const code = normalizeKey(event.code || event.key);
-  if (code) {
-    const overlayBlocks = state.activeOverlay || state.controlsVisible;
-    const isMovementKey =
-      code === "ArrowUp" ||
-      code === "ArrowDown" ||
-      code === "ArrowLeft" ||
-      code === "ArrowRight" ||
-      code === "KeyW" ||
-      code === "KeyA" ||
-      code === "KeyS" ||
-      code === "KeyD";
-    if (overlayBlocks && isMovementKey) {
-      resetMovementKeys();
-      return;
-    }
-    keys[code] = true;
-    if (code.startsWith("Arrow")) {
-      event.preventDefault();
-    }
+  keys[code] = true;
+  if (isMovementKey && state.mayor?.input) {
+    state.mayor.input.up = code === "ArrowUp" || code === "KeyW" || state.mayor.input.up;
+    state.mayor.input.down = code === "ArrowDown" || code === "KeyS" || state.mayor.input.down;
+    state.mayor.input.left = code === "ArrowLeft" || code === "KeyA" || state.mayor.input.left;
+    state.mayor.input.right = code === "ArrowRight" || code === "KeyD" || state.mayor.input.right;
+  }
+  if (code.startsWith("Arrow")) {
+    event.preventDefault();
   }
   if (
     DEBUG_PLAYER_ENABLED &&
@@ -1549,6 +1566,12 @@ function onKeyUp(event) {
   const code = normalizeKey(event.code || event.key);
   if (code && code in keys) {
     keys[code] = false;
+    if (state.mayor?.input) {
+      if (code === "ArrowUp" || code === "KeyW") state.mayor.input.up = false;
+      if (code === "ArrowDown" || code === "KeyS") state.mayor.input.down = false;
+      if (code === "ArrowLeft" || code === "KeyA") state.mayor.input.left = false;
+      if (code === "ArrowRight" || code === "KeyD") state.mayor.input.right = false;
+    }
   }
 }
 
@@ -3283,10 +3306,11 @@ function updateMayor(deltaMs) {
   let dx = 0;
   let dy = 0;
 
-  if (keys.ArrowUp || keys.KeyW) dy -= 1;
-  if (keys.ArrowDown || keys.KeyS) dy += 1;
-  if (keys.ArrowLeft || keys.KeyA) dx -= 1;
-  if (keys.ArrowRight || keys.KeyD) dx += 1;
+  const intent = state.mayor.input ?? {};
+  if (intent.up || keys.ArrowUp || keys.KeyW) dy -= 1;
+  if (intent.down || keys.ArrowDown || keys.KeyS) dy += 1;
+  if (intent.left || keys.ArrowLeft || keys.KeyA) dx -= 1;
+  if (intent.right || keys.ArrowRight || keys.KeyD) dx += 1;
 
   if (dx !== 0 && dy !== 0) {
     const inv = 1 / Math.sqrt(2);
