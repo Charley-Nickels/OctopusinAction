@@ -127,6 +127,8 @@ const fxConfig = {
   mayorBounceEnabled: true,
 };
 
+const FX_SCANLINES_ENABLED = false;
+
 const chatBubbles = [];
 
 const npcHighlightRadius = GREET_RADIUS * 1.15;
@@ -258,6 +260,7 @@ const state = {
   adminAccessGranted: false,
 };
 
+const DEBUG_PLAYER_ENABLED = false;
 const debugPlayer = { x: 384, y: 216, size: 18, color: "#ffd166" };
 
 document.addEventListener("keydown", onKeyDown);
@@ -1494,7 +1497,10 @@ function onKeyDown(event) {
       event.preventDefault();
     }
   }
-  if (code === "ArrowUp" || code === "ArrowDown" || code === "ArrowLeft" || code === "ArrowRight") {
+  if (
+    DEBUG_PLAYER_ENABLED &&
+    (code === "ArrowUp" || code === "ArrowDown" || code === "ArrowLeft" || code === "ArrowRight")
+  ) {
     moveDebugPlayer(code);
   }
   switch (code) {
@@ -3349,7 +3355,9 @@ function render() {
   drawBuildings();
   drawProps();
   drawNpcs();
-  drawDebugPlayer();
+  if (DEBUG_PLAYER_ENABLED) {
+    drawDebugPlayer();
+  }
   drawMayor();
   drawChatBubbles();
   state.ctx.restore();
@@ -3357,11 +3365,13 @@ function render() {
   drawUnderwaterAtmosphere();
   drawEdgeVignette();
   drawPixelGrid();
-  drawScanlines();
+  if (FX_SCANLINES_ENABLED && fxConfig.crtEnabled) {
+    drawScanlines();
+  }
 }
 
 function drawDebugPlayer() {
-  if (!state.ctx) return;
+  if (!DEBUG_PLAYER_ENABLED || !state.ctx) return;
   state.ctx.save();
   state.ctx.fillStyle = debugPlayer.color;
   state.ctx.strokeStyle = "#1a1a1a";
