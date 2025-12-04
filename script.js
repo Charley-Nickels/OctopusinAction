@@ -438,6 +438,8 @@ function onTimeTick() {
   if (summaryTriggered) {
     state.minuteFraction = 0;
   }
+  updateButtonStates();
+  updateHudStats();
 }
 
 function advanceOneMinute() {
@@ -1012,10 +1014,14 @@ function onOptionsClicked() {
 }
 
 function onKeyDown(event) {
-  if (event.code in keys) {
-    keys[event.code] = true;
+  const code = event.code || event.key;
+  if (code in keys) {
+    keys[code] = true;
+    if (code.startsWith("Arrow")) {
+      event.preventDefault();
+    }
   }
-  switch (event.code) {
+  switch (code) {
     case "Space":
       event.preventDefault();
       greetAttempt();
@@ -1053,8 +1059,9 @@ function onKeyDown(event) {
 }
 
 function onKeyUp(event) {
-  if (event.code in keys) {
-    keys[event.code] = false;
+  const code = event.code || event.key;
+  if (code in keys) {
+    keys[code] = false;
   }
 }
 
@@ -1391,7 +1398,7 @@ function moveNpcTowardsTarget(npc, deltaMs) {
 }
 
 function updateNpcSchedules(deltaMs) {
-  if (state.isPaused || state.timeSpeed <= 0) return;
+  if (state.isPaused || state.timeSpeed <= 0 || !state.running) return;
   const scaledDelta = deltaMs * state.timeSpeed;
   for (const npc of state.npcs) {
     updateNpcStateFromSchedule(npc);
@@ -1431,22 +1438,32 @@ async function loadNpcData() {
 
 function spreadNpcStarts() {
   if (!Array.isArray(state.npcs)) return;
-  const used = new Set();
-  const offsets = [
-    { x: 0, y: 0 },
-    { x: 1, y: 0 },
-    { x: -1, y: 0 },
-    { x: 0, y: 1 },
-    { x: 0, y: -1 },
-    { x: 1, y: 1 },
-    { x: -1, y: 1 },
-    { x: 1, y: -1 },
-    { x: -1, y: -1 },
-    { x: 2, y: 0 },
-    { x: -2, y: 0 },
-    { x: 0, y: 2 },
-    { x: 0, y: -2 },
-  ];
+  const claimMap = new Set();
+  const isBlocked = (mapData, tileX, tileY) => {
+    if (!mapData) return false;
+    const col = mapData?.collision?.[tileY]?.[tileX];
+    return col === 1;
+  };
+
+  const findSpot = (mapKey, mapData, baseX, baseY) => {
+    const cols = mapData?.cols ?? gridCols ?? 16;
+    const rows = mapData?.rows ?? gridRows ?? 9;
+    const maxRadius = Math.max(cols, rows);
+    for (let radius = 0; radius <= maxRadius; radius += 1) {
+      for (let dy = -radius; dy <= radius; dy += 1) {
+        for (let dx = -radius; dx <= radius; dx += 1) {
+          const tileX = clamp(baseX + dx, 0, cols - 1);
+          const tileY = clamp(baseY + dy, 0, rows - 1);
+          const key = `${mapKey}:${tileX}:${tileY}`;
+          if (claimMap.has(key)) continue;
+          if (isBlocked(mapData, tileX, tileY)) continue;
+          claimMap.add(key);
+          return { tileX, tileY };
+        }
+      }
+    }
+    return { tileX: clamp(baseX, 0, cols - 1), tileY: clamp(baseY, 0, rows - 1) };
+  };
 
   for (const npc of state.npcs) {
     const mapKey = npc.home?.map ?? npc.map ?? state.currentMapKey;
@@ -1456,21 +1473,7 @@ function spreadNpcStarts() {
     const baseTileX = clamp(Math.round(npc.home?.x ?? (npc.x - TILE_SIZE / 2) / TILE_SIZE), 0, cols - 1);
     const baseTileY = clamp(Math.round(npc.home?.y ?? (npc.y - TILE_SIZE / 2) / TILE_SIZE), 0, rows - 1);
 
-    let chosen = null;
-    for (const offset of offsets) {
-      const tileX = clamp(baseTileX + offset.x, 0, cols - 1);
-      const tileY = clamp(baseTileY + offset.y, 0, rows - 1);
-      const key = `${mapKey}:${tileX}:${tileY}`;
-      if (used.has(key)) continue;
-      used.add(key);
-      chosen = { tileX, tileY };
-      break;
-    }
-
-    if (!chosen) {
-      chosen = { tileX: baseTileX, tileY: baseTileY };
-    }
-
+    const chosen = findSpot(mapKey, mapData, baseTileX, baseTileY);
     npc.map = mapKey;
     npc.x = chosen.tileX * TILE_SIZE + TILE_SIZE / 2;
     npc.y = chosen.tileY * TILE_SIZE + TILE_SIZE / 2;
