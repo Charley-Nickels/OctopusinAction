@@ -1,0 +1,29 @@
+{
+  "tile_size": 48,
+  "speeds": {
+    "slow": 0.75,
+    "normal": 1.0,
+    "fast": 1.5
+  },
+  "pathing": {
+    "algorithm": "A*",
+    "heuristic": "Manhattan",
+    "avoid_collision": true,
+    "prefer_walkways": true,
+    "door_transition": "When reaching a door tile, teleport to the corresponding interior or exterior map."
+  },
+  "rules": [
+    {
+      "name": "avoid_buildings",
+      "description": "NPCs cannot walk through building tiles; they must navigate around obstacles using the collision map."
+    },
+    {
+      "name": "prefer_roads",
+      "description": "NPCs will prefer walkway tiles (ID 1) if available, but may walk on grass when necessary."
+    },
+    {
+      "name": "stop_for_interaction",
+      "description": "When interacting with the player or another NPC, stop moving and face the interaction partner until the interaction ends."
+    }
+  ]
+}

@@ -41,12 +41,19 @@
       "description": "Task description and details."
     },
     "reward": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "Optional reward for completing the task."
     },
     "status": {
       "type": "string",
-      "enum": ["new", "accepted", "completed"],
+      "enum": [
+        "new",
+        "accepted",
+        "completed"
+      ],
       "description": "Current status of the task."
     }
   },
