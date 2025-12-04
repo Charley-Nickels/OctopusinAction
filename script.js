@@ -24,9 +24,9 @@ const TILE_SIZE = 48;
 const GREET_RADIUS = 40;
 const NPC_RADIUS = 7;
 const DEFAULT_TIME_SPEED = 1;
-const FAST_TIME_SPEED = 4;
-const START_OF_DAY_MINUTES = 9 * 60;
-const END_OF_DAY_MINUTES = 17 * 60;
+const FAST_TIME_SPEED = 5;
+const START_OF_DAY_MINUTES = 7 * 60;
+const END_OF_DAY_MINUTES = 23 * 60;
 const MAYOR_BODY = "#cbb3f2";
 const MAYOR_SUIT = "#b377c9";
 const MAYOR_ACCENT = "#f19db8";
@@ -127,6 +127,8 @@ const fxConfig = {
   mayorBounceEnabled: true,
 };
 
+const FX_SCANLINES_ENABLED = false;
+
 const chatBubbles = [];
 
 const npcHighlightRadius = GREET_RADIUS * 1.15;
@@ -147,21 +149,56 @@ const keys = {
   KeyD: false,
   Space: false,
   KeyM: false,
+  KeyF: false,
   KeyP: false,
   KeyC: false,
 };
 
+const keyAliases = {
+  w: "KeyW",
+  a: "KeyA",
+  s: "KeyS",
+  d: "KeyD",
+};
+
+const ADMIN_PASSCODE = "octopus";
+
+function normalizeKey(codeOrKey) {
+  if (!codeOrKey) return null;
+  if (codeOrKey in keys) return codeOrKey;
+  const lower = codeOrKey.toLowerCase();
+  if (keyAliases[lower]) return keyAliases[lower];
+  return null;
+}
+
+function resetMovementKeys() {
+  keys.ArrowUp = false;
+  keys.ArrowDown = false;
+  keys.ArrowLeft = false;
+  keys.ArrowRight = false;
+  keys.KeyW = false;
+  keys.KeyA = false;
+  keys.KeyS = false;
+  keys.KeyD = false;
+  if (state?.mayor?.input) {
+    state.mayor.input.up = false;
+    state.mayor.input.down = false;
+    state.mayor.input.left = false;
+    state.mayor.input.right = false;
+  }
+}
+
 const state = {
   manifest: null,
-  timeMinutes: 8 * 60,
+  timeMinutes: START_OF_DAY_MINUTES,
   day: 1,
   running: false,
   isPaused: true,
   timeTimerId: null,
   minuteFraction: 0,
   timeSpeed: DEFAULT_TIME_SPEED,
-  timeMode: "normal",
-  lastHour: 8,
+  timeMode: "paused",
+  lastHour: 7,
   lastFrameTimestamp: null,
   loopStarted: false,
   mayor: {
@@ -173,6 +210,7 @@ const state = {
     velX: 0,
     velY: 0,
     walkPhase: 0,
+    input: { up: false, down: false, left: false, right: false },
   },
   npcs: [],
   npcRules: {
@@ -185,9 +223,14 @@ const state = {
   completedTasks: [],
   currentTask: null,
   mailboxIndex: 0,
+  mailboxTemplates: [],
   stats: {
     budget: 0,
     goodwill: 0,
+  },
+  dailyStats: {
+    accepted: 0,
+    completed: 0,
   },
   screenShake: { remaining: 0, duration: 0, magnitude: 0 },
   controlsVisible: false,
@@ -210,35 +253,64 @@ const state = {
   activeOverlay: null,
   summaryShownToday: false,
   summarySnapshot: [],
+  mapAnchors: {},
+  hintTimers: {
+    greet: null,
+    mailbox: null,
+    mailboxAutoDismiss: null,
+  },
+  tutorial: {
+    greetLearned: false,
+    mailboxLearned: false,
+  },
+  mailboxHintShown: false,
+  adminAccessGranted: false,
 };
 
+const DEBUG_PLAYER_ENABLED = false;
 const debugPlayer = { x: 384, y: 216, size: 18, color: "#ffd166" };
-let debugTickCounter = 0;
 
-document.addEventListener("keydown", (event) => {
-  console.log("Key pressed:", event.key);
-  if (event.key === "ArrowUp" || event.key === "ArrowDown" || event.key === "ArrowLeft" || event.key === "ArrowRight") {
-    console.log(`${event.key} pressed`);
-  }
-  onKeyDown(event);
-});
+document.addEventListener("keydown", onKeyDown);
 document.addEventListener("keyup", onKeyUp);
 
 function normalizeTask(task) {
+  const postedMinutes = parseIsoToMinutes(task.posted_at ?? task.postedAt ?? task.posted);
+  const deadlineMinutes = parseIsoToMinutes(task.deadline ?? task.deadline_at);
   return {
     id: task.task_id ?? task.id ?? "",
     title: task.title ?? task.description ?? "Untitled Task",
-    body: task.body ?? task.description ?? "",
-    from: task.from ?? task.requester ?? "",
-    reward: task.reward ?? 0,
-    type: task.type ?? "unknown",
-    goal: task.goal ?? 0,
+    body: task.description ?? task.body ?? "",
+    requester: task.requester ?? task.from ?? "",
+    reward: task.reward ?? null,
+    type: task.task_type ?? task.type ?? "unknown",
+    goal: task.goal ?? 1,
     progress: task.progress ?? 0,
     state: task.state ?? task.status ?? "available",
     building: task.building ?? "",
-    deadlineMinutes: task.deadline ? parseClockToMinutes(task.deadline) : null,
-    postedMinutes: task.posted_at ? parseClockToMinutes(task.posted_at) : null,
+    posted_at: task.posted_at,
+    deadline: task.deadline,
+    postedMinutes,
+    deadlineMinutes,
+    priority: task.priority ?? 3,
   };
+}
+
+function validateTaskAgainstSchema(task, schema) {
+  if (!schema) return true;
+  const required = schema.required ?? [];
+  for (const field of required) {
+    if (!(field in task)) return false;
+  }
+  if (typeof task.task_id !== "string" || !task.task_id.trim()) return false;
+  if (typeof task.task_type !== "string") return false;
+  if (typeof task.requester !== "string") return false;
+  if (typeof task.building !== "string") return false;
+  if (typeof task.priority !== "number" || task.priority < 1 || task.priority > 3) return false;
+  if (Number.isNaN(Date.parse(task.posted_at))) return false;
+  if (Number.isNaN(Date.parse(task.deadline))) return false;
+  if (typeof task.description !== "string") return false;
+  if (typeof task.status !== "string") return false;
+  return true;
 }
 
 let msPerIngameMinute = 1000;
@@ -340,6 +412,14 @@ function parseClockToMinutes(str) {
   return h * 60 + m;
 }
 
+function parseIsoToMinutes(value) {
+  if (!value) return null;
+  const t = Date.parse(value);
+  if (Number.isNaN(t)) return null;
+  const d = new Date(t);
+  return d.getUTCHours() * 60 + d.getUTCMinutes();
+}
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -381,18 +461,143 @@ function normalizeMap(mapData) {
   };
 }
 
+function buildBoundingBoxes(layer) {
+  const boxes = new Map();
+  if (!Array.isArray(layer)) return boxes;
+  for (let y = 0; y < layer.length; y += 1) {
+    for (let x = 0; x < (layer[y]?.length ?? 0); x += 1) {
+      const value = layer[y][x];
+      if (value === undefined || value === null) continue;
+      if (value <= 1) continue;
+      const key = String(value);
+      const box = boxes.get(key) ?? { minX: x, maxX: x, minY: y, maxY: y };
+      box.minX = Math.min(box.minX, x);
+      box.maxX = Math.max(box.maxX, x);
+      box.minY = Math.min(box.minY, y);
+      box.maxY = Math.max(box.maxY, y);
+      boxes.set(key, box);
+    }
+  }
+  return boxes;
+}
+
+function convertTownFromMapPack(mapPack) {
+  if (!mapPack) return { map: null, anchors: {} };
+  const cols = mapPack.width ?? mapPack.cols ?? 0;
+  const rows = mapPack.height ?? mapPack.rows ?? 0;
+  const tileSize = mapPack.tile_size ?? TILE_SIZE;
+  const ground = mapPack.layers?.ground ?? [];
+  const buildingLayer = mapPack.layers?.buildings ?? [];
+  const collision = mapPack.collision_map ?? [];
+  const legend = mapPack.legend ?? {};
+  const boxes = buildBoundingBoxes(buildingLayer);
+  const anchors = {};
+  const doors = [];
+  const buildings = [];
+
+  boxes.forEach((box, key) => {
+    const name = legend[key] ?? `building_${key}`;
+    const mapName = name.toLowerCase().replace(/\s+/g, "_");
+    const anchorX = Math.floor((box.minX + box.maxX) / 2);
+    const anchorY = Math.min(rows - 1, box.maxY + 1);
+    anchors[mapName] = { x: anchorX, y: anchorY, map: mapName };
+    buildings.push({ key: mapName, kind: mapName, x: box.minX, y: box.minY, w: box.maxX - box.minX + 1, h: box.maxY - box.minY + 1 });
+    doors.push({ id: `${mapName}_entry`, from: { x: anchorX, y: anchorY }, toMap: mapName, to: null });
+  });
+
+  const tiles = ground.map((row) => row.map((v) => (v === 1 ? tileLegend.path : tileLegend.grass)));
+  const mailboxAnchor = anchors.residential ?? anchors["residential"] ?? { x: 12, y: 14 };
+  const spawn = { x: mailboxAnchor.x, y: mailboxAnchor.y };
+
+  return {
+    map: {
+      name: "town",
+      kind: "town",
+      cols,
+      rows,
+      tileSize,
+      tiles,
+      collision,
+      doors,
+      mailbox: { x: mailboxAnchor.x, y: Math.min(rows - 1, mailboxAnchor.y + 1) },
+      spawn,
+      buildings,
+    },
+    anchors,
+  };
+}
+
+function convertInteriorFromPack(name, data, townAnchors) {
+  if (!data) return null;
+  const cols = data.width ?? data.cols ?? 0;
+  const rows = data.height ?? data.rows ?? 0;
+  const tileSize = data.tile_size ?? TILE_SIZE;
+  const floor = data.layers?.floor ?? data.layers?.ground ?? [];
+  const collision = floor.map((row) => row.map((v) => (v === 1 ? 1 : 0)));
+  const tiles = floor.map((row) => row.map(() => tileLegend.interior));
+  let door = null;
+  for (let y = 0; y < floor.length; y += 1) {
+    for (let x = 0; x < (floor[y]?.length ?? 0); x += 1) {
+      if (floor[y][x] === 9) {
+        door = { x, y };
+        break;
+      }
+    }
+    if (door) break;
+  }
+  const target = townAnchors?.[name] ?? townAnchors?.[name.toLowerCase()] ?? { x: 12, y: 14 };
+  const doors = door
+    ? [{ id: `${name}_exit`, from: door, toMap: "town", to: { x: target.x, y: target.y } }]
+    : [];
+
+  return {
+    name,
+    kind: "interior",
+    cols,
+    rows,
+    tileSize,
+    tiles,
+    collision,
+    doors,
+    spawn: door ?? { x: Math.floor(cols / 2), y: rows - 1 },
+  };
+}
+
 async function loadMapData() {
-  const town = normalizeMap(await loadJsonSafe("oia/data/town_map_v01.json"));
-  const cityHall = normalizeMap(await loadJsonSafe("oia/data/interiors_v01/city_hall.json"));
-  const shop = normalizeMap(await loadJsonSafe("oia/data/interiors_v01/shop.json"));
+  const mapPack = await loadJsonSafe("agent_assets/MAP_PACK_v01/oia/assets/map_pack_v01/town_map_v01.json", null);
+  const { map: town, anchors } = convertTownFromMapPack(mapPack);
+  state.mapAnchors = anchors ?? {};
+
+  const interiorPaths = [
+    { key: "city_hall", path: "agent_assets/INTERIORS_v01/oia/assets/interiors_v01/city_hall.json" },
+    { key: "post_office", path: "agent_assets/INTERIORS_v01/oia/assets/interiors_v01/post_office.json" },
+    { key: "residential", path: "agent_assets/INTERIORS_v01/oia/assets/interiors_v01/residential.json" },
+    { key: "commercial", path: "agent_assets/INTERIORS_v01/oia/assets/interiors_v01/commercial.json" },
+    { key: "utilities", path: "agent_assets/INTERIORS_v01/oia/assets/interiors_v01/utilities.json" },
+  ];
+
+  const interiorMaps = [];
+  for (const interior of interiorPaths) {
+    const data = await loadJsonSafe(interior.path, null);
+    const converted = convertInteriorFromPack(interior.key, data, state.mapAnchors);
+    if (converted) {
+      interiorMaps.push(converted);
+    }
+  }
 
   const maps = {};
-  for (const map of [town, cityHall, shop]) {
+  for (const map of [town, ...interiorMaps]) {
     if (map) {
       maps[map.name] = map;
     }
   }
   state.maps = maps;
+  for (const door of state.maps.town?.doors ?? []) {
+    const target = state.maps[door.toMap];
+    if (target && !door.to) {
+      door.to = target.spawn ?? { x: 1, y: 1 };
+    }
+  }
   if (!state.maps.town) {
     console.warn("Town map missing; falling back to procedural layout");
   }
@@ -400,6 +605,15 @@ async function loadMapData() {
 
 function getCurrentMap() {
   return state.maps?.[state.currentMapKey] ?? null;
+}
+
+function placeMayorAtTile(tilePosition) {
+  if (!tilePosition) return;
+  const world = tileToWorld(tilePosition);
+  state.mayor.x = world.x - state.mayor.width / 2;
+  state.mayor.y = world.y - state.mayor.height;
+  state.mayor.velX = 0;
+  state.mayor.velY = 0;
 }
 
 function applyMap(mapKey, spawnOverride = null) {
@@ -418,8 +632,7 @@ function applyMap(mapKey, spawnOverride = null) {
   buildBuildings(map);
   buildProps(map);
   if (state.spawnPoint && spawnOverride) {
-    state.mayor.x = state.spawnPoint.x * TILE_SIZE;
-    state.mayor.y = state.spawnPoint.y * TILE_SIZE;
+    placeMayorAtTile(state.spawnPoint);
   }
 }
 
@@ -435,8 +648,7 @@ function warpToDoor(door) {
   const spawn = door.to ? { x: door.to.x, y: door.to.y } : null;
   applyMap(door.toMap, spawn);
   if (spawn) {
-    state.mayor.x = spawn.x * TILE_SIZE;
-    state.mayor.y = spawn.y * TILE_SIZE;
+    placeMayorAtTile(spawn);
   }
 }
 
@@ -473,101 +685,23 @@ function onTimeTick() {
   updateHudStats();
 }
 
-function advanceOneMinute() {
-  const prevHour = Math.floor(state.timeMinutes / 60) % 24;
-  state.timeMinutes += 1;
-  let summaryTriggered = false;
-
-  if (!state.summaryShownToday && state.timeMinutes >= END_OF_DAY_MINUTES) {
-    triggerDailySummary();
-    summaryTriggered = true;
-  }
-
-  if (state.timeMinutes >= 24 * 60) {
-    state.day += 1;
-    state.timeMinutes = state.timeMinutes % (24 * 60);
-    state.summaryShownToday = false;
-    state.lastHour = Math.floor(state.timeMinutes / 60);
-  }
-
-  const newHour = Math.floor(state.timeMinutes / 60) % 24;
-  if (newHour !== prevHour) {
-    state.lastHour = newHour;
-  }
-  return summaryTriggered;
-}
-
-function setTimeMode(mode) {
-  state.timeMode = mode;
-  if (mode === "paused") {
-    state.timeSpeed = 0;
-    state.running = false;
-    state.isPaused = true;
-    stopTimeTimer();
-  } else if (mode === "fast") {
-    state.timeSpeed = FAST_TIME_SPEED;
-    state.running = true;
-    state.isPaused = false;
-    startTimeTimer();
-  } else {
-    state.timeSpeed = DEFAULT_TIME_SPEED;
-    state.running = true;
-    state.isPaused = false;
-    startTimeTimer();
-  }
-  updateButtonStates();
-  updateHudStats();
+function evaluateTaskDeadlines() {
+  const now = state.timeMinutes;
+  const mark = (task) => {
+    if (!task || task.state === "completed") return;
+    if (task.deadlineMinutes != null && now > task.deadlineMinutes) {
+      task.state = "failed";
+      task.status = "failed";
+    }
+  };
+  mark(state.currentTask);
+  state.pendingTasks.forEach(mark);
 }
 
 function advanceOneMinute() {
   const prevHour = Math.floor(state.timeMinutes / 60) % 24;
   state.timeMinutes += 1;
-  let summaryTriggered = false;
-
-  if (!state.summaryShownToday && state.timeMinutes >= END_OF_DAY_MINUTES) {
-    triggerDailySummary();
-    summaryTriggered = true;
-  }
-
-  if (state.timeMinutes >= 24 * 60) {
-    state.day += 1;
-    state.timeMinutes = state.timeMinutes % (24 * 60);
-    state.summaryShownToday = false;
-    state.lastHour = Math.floor(state.timeMinutes / 60);
-  }
-
-  const newHour = Math.floor(state.timeMinutes / 60) % 24;
-  if (newHour !== prevHour) {
-    state.lastHour = newHour;
-  }
-  return summaryTriggered;
-}
-
-function setTimeMode(mode) {
-  state.timeMode = mode;
-  if (mode === "paused") {
-    state.timeSpeed = 0;
-    state.running = false;
-    state.isPaused = true;
-    stopTimeTimer();
-  } else if (mode === "fast") {
-    state.timeSpeed = FAST_TIME_SPEED;
-    state.running = true;
-    state.isPaused = false;
-    startTimeTimer();
-  } else {
-    state.timeSpeed = DEFAULT_TIME_SPEED;
-    state.running = true;
-    state.isPaused = false;
-    startTimeTimer();
-  }
-  updateButtonStates();
-  updateHudStats();
-}
-
-function advanceOneMinute() {
-  const prevHour = Math.floor(state.timeMinutes / 60) % 24;
-  state.timeMinutes += 1;
+  evaluateTaskDeadlines();
   let summaryTriggered = false;
 
   if (!state.summaryShownToday && state.timeMinutes >= END_OF_DAY_MINUTES) {
@@ -613,43 +747,25 @@ function setTimeMode(mode) {
 
 // ===== HUD & UI Helpers =====
 function updateHudStats() {
-  if (!state.ui.stats) return;
   const totalMinutes = state.timeMinutes;
   const hour = Math.floor(totalMinutes / 60) % 24;
   const minute = totalMinutes % 60;
   const formattedTime = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-  const speedLabel = state.timeMode === "fast" ? "Fast" : state.timeMode === "paused" ? "Paused" : "Normal";
+  const timeOfDayLabel = getTimeOfDayLabel(hour);
+  const speedLabel =
+    state.timeMode === "fast"
+      ? `Fast-Forward (${FAST_TIME_SPEED}×)`
+      : state.timeMode === "paused"
+        ? "Paused"
+        : "Play (1×)";
 
-  let taskText = "Task: (none yet)";
-  if (state.currentTask) {
-    const t = state.currentTask;
-    if (t.state === "accepted") {
-      taskText = `Task: ${t.title} ${t.progress ?? 0}/${t.goal} (Accepted)`;
-    } else if (t.state === "completed") {
-      taskText = `Task: ${t.title} ${t.goal}/${t.goal} (Completed)`;
-    } else {
-      taskText = `Task: ${t.title} (Available)`;
-    }
-  } else if (state.pendingTasks.length > 0) {
-    taskText = "Task: Available (check mailbox)";
-  }
-
-  const nextText = `Day ${state.day} — ${formattedTime} (${speedLabel}) — ${taskText}`;
-  if (state.hudText !== nextText) {
-    state.hudText = nextText;
-    state.ui.stats.textContent = nextText;
-
-    state.ui.stats.classList.remove("hud-pulse");
-    if (state.hudPulseTimeout) {
-      clearTimeout(state.hudPulseTimeout);
-    }
-    // trigger fade-in pulse when the text changes
-    void state.ui.stats.offsetWidth;
-    state.ui.stats.classList.add("hud-pulse");
-    state.hudPulseTimeout = window.setTimeout(() => {
-      state.ui.stats?.classList.remove("hud-pulse");
-      state.hudPulseTimeout = null;
-    }, hudFadeDurationMs + 40);
+  if (state.ui.dayLabel) state.ui.dayLabel.textContent = `Day ${state.day}`;
+  if (state.ui.timeLabel) state.ui.timeLabel.textContent = formattedTime;
+  if (state.ui.timeOfDayLabel) state.ui.timeOfDayLabel.textContent = timeOfDayLabel;
+  if (state.ui.speedLabel) state.ui.speedLabel.textContent = speedLabel;
+  if (state.ui.messageArea) {
+    const fallback = "Check your mailbox for posted tasks.";
+    state.ui.messageArea.textContent = state.hudText || fallback;
   }
   updateTaskHud();
 }
@@ -660,43 +776,115 @@ function formatMinutes(minutes) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+function getTimeOfDayLabel(hour) {
+  if (hour < 12) return "Morning";
+  if (hour < 17) return "Afternoon";
+  if (hour < 21) return "Evening";
+  return "Night";
+}
+
 function updateTaskHud() {
-  if (!state.ui.taskHud) return;
+  if (!state.ui.taskList) return;
   const accepted = [];
-  if (state.currentTask) accepted.push(state.currentTask);
-  const list = accepted.length
-    ? accepted.map((t) => `${t.title ?? t.description} — ${t.status ?? t.state}`)
-    : ["No active tasks yet. Accept something from the mailbox."];
-  const deadlines = accepted
-    .map((t) => (t.deadlineMinutes ? `Due ${formatMinutes(t.deadlineMinutes)}` : ""))
-    .filter(Boolean);
-  const text = `${list.join(" | ")} ${deadlines.length ? `(${deadlines.join(", ")})` : ""}`.trim();
-  if (text !== state.taskHudText) {
-    state.taskHudText = text;
-    state.ui.taskHud.textContent = text;
+  if (state.currentTask && state.currentTask.state === "accepted") accepted.push(state.currentTask);
+  for (const t of state.pendingTasks) {
+    if (t.state === "accepted") accepted.push(t);
   }
+  accepted.sort((a, b) => {
+    if (state.currentTask && a.id === state.currentTask.id) return -1;
+    if (state.currentTask && b.id === state.currentTask.id) return 1;
+    const deadlineA = a.deadlineMinutes ?? Number.MAX_SAFE_INTEGER;
+    const deadlineB = b.deadlineMinutes ?? Number.MAX_SAFE_INTEGER;
+    if (deadlineA !== deadlineB) return deadlineA - deadlineB;
+    return (a.priority ?? 3) - (b.priority ?? 3);
+  });
+
+  state.ui.taskList.innerHTML = "";
+  const totalAccepted = Math.max(state.dailyStats.accepted, accepted.length);
+  const statusLabel = `Tasks completed today: ${state.dailyStats.completed} / ${totalAccepted || 0}`;
+  if (state.ui.taskStatus) {
+    if (totalAccepted === 0) {
+      state.ui.taskStatus.textContent = "No active tasks.";
+    } else {
+      state.ui.taskStatus.textContent = statusLabel;
+    }
+  }
+  if (accepted.length === 0) {
+    const li = document.createElement("li");
+    li.textContent = "No active tasks. Grab mail to start.";
+    state.ui.taskList.appendChild(li);
+    return;
+  }
+
+  accepted.slice(0, 4).forEach((t) => {
+    const li = document.createElement("li");
+    const title = document.createElement("div");
+    const isActive = state.currentTask && state.currentTask.id === t.id && state.currentTask.state === "accepted";
+    const progressLabel = t.goal ? ` (${Math.min(t.progress ?? 0, t.goal)}/${t.goal})` : "";
+    title.textContent = `${t.title ?? t.description ?? "Task"}${isActive ? " (Active)" : ""}${progressLabel}`;
+    const meta = document.createElement("div");
+    meta.className = "task-meta";
+    const deadline = t.deadlineMinutes != null ? `Due ${formatMinutes(t.deadlineMinutes)}` : "No deadline";
+    const status = t.state ?? t.status ?? "available";
+    meta.textContent = `${t.requester ?? t.from ?? ""} — ${deadline} — ${status}`;
+    li.appendChild(title);
+    li.appendChild(meta);
+    if (isActive) {
+      li.classList.add("active-task");
+    }
+    state.ui.taskList.appendChild(li);
+  });
 }
 
 function updateButtonStates() {
-  if (state.ui.btnStart && state.ui.btnPause) {
-    state.ui.btnStart.classList.toggle("btn-active", state.timeMode === "normal");
-    state.ui.btnPause.classList.toggle("btn-active", state.timeMode === "paused");
+  if (state.ui.btnPlay && state.ui.btnPause) {
+    state.ui.btnPlay.setAttribute("aria-pressed", state.timeMode === "normal" ? "true" : "false");
+    state.ui.btnPause.setAttribute("aria-pressed", state.timeMode === "paused" ? "true" : "false");
   }
   if (state.ui.btnFast) {
-    state.ui.btnFast.classList.toggle("btn-active", state.timeMode === "fast");
+    state.ui.btnFast.setAttribute("aria-pressed", state.timeMode === "fast" ? "true" : "false");
   }
 }
 
 function updateGreetHint() {
   const hintEl = state.ui.greetHint;
   if (!hintEl) return;
+  if (state.tutorial.greetLearned) {
+    hideGreetHint();
+    return;
+  }
+  if (state.activeOverlay) {
+    hideGreetHint();
+    return;
+  }
   const npc = findNearbyNpc();
   const shouldShow = Boolean(npc);
-  hintEl.classList.toggle("hidden", !shouldShow);
+  if (shouldShow) {
+    if (state.hintTimers.greet) {
+      clearTimeout(state.hintTimers.greet);
+      state.hintTimers.greet = null;
+    }
+    hintEl.classList.remove("hidden");
+  } else if (!state.hintTimers.greet) {
+    state.hintTimers.greet = setTimeout(() => {
+      hintEl.classList.add("hidden");
+      state.hintTimers.greet = null;
+    }, 600);
+  }
+}
+
+function hideGreetHint() {
+  const hintEl = state.ui.greetHint;
+  if (!hintEl) return;
+  hintEl.classList.add("hidden");
+  if (state.hintTimers.greet) {
+    clearTimeout(state.hintTimers.greet);
+    state.hintTimers.greet = null;
+  }
 }
 
 function isNearMailbox() {
-  if (!state.mailboxSpot) return true;
+  if (!state.mailboxSpot) return false;
   const centerX = state.mayor.x + state.mayor.width / 2;
   const centerY = state.mayor.y + state.mayor.height / 2;
   const mailX = state.mailboxSpot.x * TILE_SIZE + TILE_SIZE / 2;
@@ -708,11 +896,44 @@ function isNearMailbox() {
 function updateMailboxHint() {
   const hintEl = state.ui.mailboxHint;
   if (!hintEl) return;
-  const shouldShow = isNearMailbox();
-  hintEl.classList.toggle("hidden", !shouldShow);
+  if (state.tutorial.mailboxLearned) {
+    hintEl.classList.add("hidden");
+    return;
+  }
+  if (state.mailboxHintShown) {
+    hintEl.classList.add("hidden");
+    return;
+  }
+  const shouldShow = isNearMailbox() && !state.activeOverlay;
+  if (shouldShow) {
+    if (state.hintTimers.mailbox) {
+      clearTimeout(state.hintTimers.mailbox);
+      state.hintTimers.mailbox = null;
+    }
+    if (state.hintTimers.mailboxAutoDismiss) {
+      clearTimeout(state.hintTimers.mailboxAutoDismiss);
+      state.hintTimers.mailboxAutoDismiss = null;
+    }
+    hintEl.classList.remove("hidden");
+    state.mailboxHintShown = true;
+    state.hintTimers.mailboxAutoDismiss = setTimeout(() => {
+      hintEl.classList.add("hidden");
+      state.hintTimers.mailboxAutoDismiss = null;
+      state.mailboxHintShown = true;
+      state.tutorial.mailboxLearned = true;
+    }, 6000);
+  } else if (!state.hintTimers.mailbox) {
+    state.hintTimers.mailbox = setTimeout(() => {
+      hintEl.classList.add("hidden");
+      state.hintTimers.mailbox = null;
+    }, 1200);
+  }
 }
 
 function showOverlay() {
+  hideGreetHint();
+  state.ui.mailboxHint?.classList.add("hidden");
+  resetMovementKeys();
   state.ui.overlay?.classList.remove("hidden");
   const panel = state.ui.overlayPanel;
   if (panel) {
@@ -725,10 +946,6 @@ function showOverlay() {
 
 function hideOverlay() {
   state.ui.overlay?.classList.add("hidden");
-  if (state.activeOverlay === "summary") {
-    clearTasksForNextDay();
-    setTimeMode("normal");
-  }
   if (state.activeOverlay === "mailbox") {
     state.mailboxOpen = false;
   }
@@ -743,22 +960,57 @@ function toggleControlsOverlay(forceVisible) {
     hideOverlay();
   }
   if (target) {
+    resetMovementKeys();
     state.ui.controlsOverlay.classList.remove("hidden");
   } else {
     state.ui.controlsOverlay.classList.add("hidden");
   }
 }
 
+function updateAdminStatus(message, isSuccess) {
+  if (!state.ui.adminStatus) return;
+  state.ui.adminStatus.textContent = message;
+  state.ui.adminStatus.classList.remove("status-success", "status-fail");
+  if (!message) return;
+  state.ui.adminStatus.classList.add(isSuccess ? "status-success" : "status-fail");
+}
+
+function handleAdminSubmit(event) {
+  if (event) event.preventDefault();
+  if (!state.ui.adminInput || !state.ui.adminStatus) return;
+  const value = state.ui.adminInput.value.trim();
+  if (!value) {
+    state.adminAccessGranted = false;
+    updateAdminStatus("Enter access code.", false);
+    return;
+  }
+  if (value.toLowerCase() === ADMIN_PASSCODE) {
+    state.adminAccessGranted = true;
+    updateAdminStatus("Access granted.", true);
+  } else {
+    state.adminAccessGranted = false;
+    updateAdminStatus("Access denied.", false);
+  }
+}
+
 // ===== Tasks & Mailbox =====
 async function loadMailboxTasks() {
+  const schema = await loadJsonSafe("oia/data/mailbox_schema_v01/mailbox_schema.json", null);
   const tasks = await loadJsonSafe("oia/data/mailbox_schema_v01/sample_tasks.json", []);
   const seen = new Set();
   state.pendingTasks = [];
+  state.mailboxTemplates = [];
   for (const task of tasks) {
+    if (!validateTaskAgainstSchema(task, schema)) {
+      console.warn("Skipping task that does not match schema", task);
+      continue;
+    }
     const normalized = normalizeTask(task);
     if (!normalized.id || seen.has(normalized.id)) continue;
     seen.add(normalized.id);
-    state.pendingTasks.push({ ...normalized, status: "new", state: "available", progress: 0 });
+    const entry = { ...normalized, status: "new", state: "available", progress: 0 };
+    state.pendingTasks.push(entry);
+    state.mailboxTemplates.push({ ...entry });
   }
 }
 
@@ -767,19 +1019,40 @@ function beginDay() {
   state.timeMinutes = START_OF_DAY_MINUTES;
   state.lastHour = Math.floor(state.timeMinutes / 60);
   state.minuteFraction = 0;
+  state.dailyStats = { accepted: 0, completed: 0 };
   state.currentTask = null;
   state.completedTasks = [];
-  state.pendingTasks = state.pendingTasks.map((t) => ({ ...t, state: "available", status: "new", progress: 0 }));
+  if (state.mailboxTemplates.length > 0) {
+    state.pendingTasks = state.mailboxTemplates.map((t) => ({ ...t, state: "available", status: "new", progress: 0 }));
+  } else {
+    state.pendingTasks = state.pendingTasks.map((t) => ({ ...t, state: "available", status: "new", progress: 0 }));
+  }
   state.summaryShownToday = false;
   state.summarySnapshot = [];
   state.activeOverlay = null;
   state.mailboxOpen = false;
-  applyMap("town", getCurrentMap()?.spawn ?? state.spawnPoint ?? { x: 7, y: 6 });
-  state.mayor.x = (state.spawnPoint?.x ?? 7) * TILE_SIZE;
-  state.mayor.y = (state.spawnPoint?.y ?? 6) * TILE_SIZE;
+  state.mailboxHintShown = state.tutorial.mailboxLearned;
+  if (state.hintTimers.greet) {
+    clearTimeout(state.hintTimers.greet);
+    state.hintTimers.greet = null;
+  }
+  if (state.hintTimers.mailbox) {
+    clearTimeout(state.hintTimers.mailbox);
+    state.hintTimers.mailbox = null;
+  }
+  if (state.hintTimers.mailboxAutoDismiss) {
+    clearTimeout(state.hintTimers.mailboxAutoDismiss);
+    state.hintTimers.mailboxAutoDismiss = null;
+  }
+  state.ui.greetHint?.classList.add("hidden");
+  state.ui.mailboxHint?.classList.add("hidden");
+  state.hudText = "Day start: Check your mailbox for tasks.";
+  const startMap = state.maps.residential ? "residential" : "town";
+  const spawn = state.maps[startMap]?.spawn ?? state.spawnPoint ?? { x: 12, y: 14 };
+  applyMap(startMap, spawn);
+  placeMayorAtTile(state.spawnPoint ?? spawn);
   setTimeMode("normal");
   state.running = true;
-  console.info("Day started");
 }
 
 function endDaySummary() {
@@ -814,7 +1087,11 @@ function getAcceptedTasksSnapshot() {
 function clearTasksForNextDay() {
   state.currentTask = null;
   state.completedTasks = [];
-  state.pendingTasks = state.pendingTasks.map((t) => ({ ...t, state: "available", status: "new", progress: 0 }));
+  if (state.mailboxTemplates.length > 0) {
+    state.pendingTasks = state.mailboxTemplates.map((t) => ({ ...t, state: "available", status: "new", progress: 0 }));
+  } else {
+    state.pendingTasks = state.pendingTasks.map((t) => ({ ...t, state: "available", status: "new", progress: 0 }));
+  }
   state.mailboxIndex = 0;
   state.summarySnapshot = [];
   state.day += 1;
@@ -822,6 +1099,8 @@ function clearTasksForNextDay() {
   state.timeMinutes = START_OF_DAY_MINUTES;
   state.lastHour = Math.floor(state.timeMinutes / 60);
   state.minuteFraction = 0;
+  state.dailyStats = { accepted: 0, completed: 0 };
+  state.mailboxHintShown = state.tutorial.mailboxLearned;
 }
 
 function showDailySummary(snapshot) {
@@ -829,16 +1108,64 @@ function showDailySummary(snapshot) {
   state.activeOverlay = "summary";
   state.mailboxOpen = false;
   setTimeMode("paused");
-  if (state.ui.overlayTitle) state.ui.overlayTitle.textContent = `Daily Summary — Day ${state.day}`;
+  if (state.ui.overlayTitle) state.ui.overlayTitle.textContent = `End of Day Summary — Day ${state.day}`;
   if (state.ui.overlayBody) {
-    const lines = [`Accepted Tasks: ${snapshot.length}`];
-    snapshot.forEach((task, idx) => {
-      const title = task.title ?? task.body ?? "Task";
-      lines.push(`${idx + 1}. ${title}`);
-    });
-    state.ui.overlayBody.textContent = lines.join("\n");
+    state.ui.overlayBody.innerHTML = "";
+    const acceptedCount = state.dailyStats.accepted;
+    const completedCount = state.dailyStats.completed;
+    const headline =
+      acceptedCount === 0
+        ? "No tasks accepted today."
+        : completedCount >= acceptedCount
+          ? "You kept the town humming."
+          : "Some tasks rolled into tomorrow.";
+
+    const titleLine = document.createElement("div");
+    titleLine.className = "summary-headline";
+    titleLine.textContent = headline;
+
+    const metaLine = document.createElement("div");
+    metaLine.className = "summary-meta";
+    metaLine.textContent = `Day ${state.day} — ${formatMinutes(state.timeMinutes)}`;
+
+    const countsLine = document.createElement("div");
+    countsLine.className = "summary-meta";
+    countsLine.textContent = `Accepted: ${acceptedCount} • Completed: ${completedCount}`;
+
+    state.ui.overlayBody.appendChild(titleLine);
+    state.ui.overlayBody.appendChild(metaLine);
+    state.ui.overlayBody.appendChild(countsLine);
+
+    const listLabel = document.createElement("div");
+    listLabel.textContent = "Tasks handled today:";
+    listLabel.style.margin = "6px 0";
+    state.ui.overlayBody.appendChild(listLabel);
+
+    const list = document.createElement("ul");
+    list.className = "summary-list";
+    if (snapshot.length > 0) {
+      snapshot.forEach((task) => {
+        const li = document.createElement("li");
+        const title = task.title ?? task.body ?? "Task";
+        const status = task.state ?? task.status ?? "accepted";
+        li.textContent = `${title} — ${status}`;
+        list.appendChild(li);
+      });
+    } else {
+      const li = document.createElement("li");
+      li.textContent = "— None logged.";
+      list.appendChild(li);
+    }
+
+    state.ui.overlayBody.appendChild(list);
   }
-  setOverlayButtons({ acceptVisible: false, completeVisible: false });
+  if (state.ui.btnAccept) {
+    state.ui.btnAccept.textContent = "Next Day";
+  }
+  if (state.ui.btnClose) {
+    state.ui.btnClose.textContent = "Stay Paused";
+  }
+  setOverlayButtons({ acceptVisible: true, acceptDisabled: false, completeVisible: false });
   setNavVisibility(false);
   showOverlay();
 }
@@ -848,6 +1175,12 @@ function triggerDailySummary() {
   state.summaryShownToday = true;
   const snapshot = getAcceptedTasksSnapshot();
   showDailySummary(snapshot);
+}
+
+function startNextDayFromSummary() {
+  clearTasksForNextDay();
+  hideOverlay();
+  beginDay();
 }
 
 function setOverlayButtons({ acceptVisible, acceptDisabled = false, completeVisible, completeDisabled = false }) {
@@ -872,10 +1205,16 @@ function getMailboxTasks() {
   if (state.currentTask) {
     tasks.push(state.currentTask);
   }
-  return tasks.concat(state.pendingTasks);
+  const available = state.pendingTasks.filter((t) => {
+    if (t.state === "completed") return false;
+    if (t.deadlineMinutes != null && state.timeMinutes > t.deadlineMinutes) return false;
+    if (t.postedMinutes != null && state.timeMinutes < t.postedMinutes) return false;
+    return true;
+  });
+  return tasks.concat(available);
 }
 
-function buildOverlayLines(task, tasksLength, note) {
+function buildOverlayLines(task, tasksLength, note, tasks = []) {
   const lines = [];
   const positionLabel = tasksLength > 0 ? `Task ${state.mailboxIndex + 1} of ${tasksLength}` : "Task";
   const stateLabel = task.state ?? "available";
@@ -886,10 +1225,21 @@ function buildOverlayLines(task, tasksLength, note) {
     stateLine += " — Completed. You may accept a new task.";
   }
   lines.push(stateLine);
+  const department = task.building || task.department || "Town";
+  const urgency = task.priority != null ? `Priority ${task.priority}` : "Standard";
+  lines.push(`Department: ${department}`);
+  lines.push(`Urgency: ${urgency}`);
+  if (tasks.length > 0) {
+    const titles = tasks.map((t) => t.title ?? t.description ?? "Task").slice(0, 5).join(" • ");
+    lines.push(`Tasks available: ${titles}`);
+  }
   lines.push(task.body ?? "");
-  lines.push(`From: ${task.from}`);
+  lines.push(`From: ${task.requester ?? task.from ?? ""}`);
   lines.push(`Reward: ${task.reward}`);
   if (task.building) lines.push(`Building: ${task.building}`);
+  if (task.postedMinutes !== null && task.postedMinutes !== undefined) {
+    lines.push(`Posted: ${formatMinutes(task.postedMinutes)}`);
+  }
   if (task.deadlineMinutes !== null && task.deadlineMinutes !== undefined) {
     lines.push(`Deadline: ${formatMinutes(task.deadlineMinutes)}`);
   }
@@ -932,6 +1282,17 @@ function openMailboxPanel(note = "", options = {}) {
   if (state.activeOverlay === "summary") return;
   state.activeOverlay = "mailbox";
   state.mailboxOpen = true;
+  state.mailboxHintShown = true;
+  state.tutorial.mailboxLearned = true;
+  if (state.hintTimers.mailbox) {
+    clearTimeout(state.hintTimers.mailbox);
+    state.hintTimers.mailbox = null;
+  }
+  if (state.hintTimers.mailboxAutoDismiss) {
+    clearTimeout(state.hintTimers.mailboxAutoDismiss);
+    state.hintTimers.mailboxAutoDismiss = null;
+  }
+  state.ui.mailboxHint?.classList.add("hidden");
   const playSound = options.playSound !== false;
   toggleControlsOverlay(false);
   if (playSound) {
@@ -949,7 +1310,13 @@ function openMailboxPanel(note = "", options = {}) {
 
   if (!task) {
     if (state.ui.overlayTitle) state.ui.overlayTitle.textContent = "Mailbox";
-    if (state.ui.overlayBody) state.ui.overlayBody.textContent = note || "No letters at the moment.";
+    if (state.ui.overlayBody) {
+      const nextPost = state.pendingTasks
+        .filter((t) => t.postedMinutes != null && t.postedMinutes > state.timeMinutes)
+        .sort((a, b) => (a.postedMinutes ?? 0) - (b.postedMinutes ?? 0))[0];
+      const hint = nextPost ? `No new mail yet. Next delivery at ${formatMinutes(nextPost.postedMinutes)}.` : "No letters at the moment.";
+      state.ui.overlayBody.textContent = note || hint;
+    }
     setOverlayButtons({ acceptVisible: false, completeVisible: false });
     setNavVisibility(false);
     showOverlay();
@@ -957,9 +1324,11 @@ function openMailboxPanel(note = "", options = {}) {
   }
 
   if (state.ui.overlayTitle) state.ui.overlayTitle.textContent = task.title;
+  if (state.ui.btnAccept) state.ui.btnAccept.textContent = "Accept";
+  if (state.ui.btnClose) state.ui.btnClose.textContent = "Close";
 
   if (state.ui.overlayBody) {
-    const lines = buildOverlayLines(task, tasks.length, note);
+    const lines = buildOverlayLines(task, tasks.length, note, tasks);
     state.ui.overlayBody.textContent = lines.join("\n");
   }
 
@@ -1003,6 +1372,9 @@ function tryCompleteTask() {
   if (!state.completedTasks.find((t) => t.id === state.currentTask.id)) {
     state.completedTasks.push({ ...state.currentTask });
   }
+  state.dailyStats.completed += 1;
+  state.hudText = `Task completed: ${state.currentTask.title}`;
+  state.currentTask = null;
   openMailboxPanel("Task completed! Check your mailbox for new letters.", { playSound: false });
   playSfx("taskComplete");
   startScreenShake();
@@ -1011,11 +1383,25 @@ function tryCompleteTask() {
 
 function onAcceptClicked() {
   playSfx("click");
+  if (state.activeOverlay === "summary") {
+    startNextDayFromSummary();
+    return;
+  }
   const tasks = getMailboxTasks();
   const task = tasks[state.mailboxIndex] ?? null;
 
   if (!task || !state.pendingTasks.some((t) => t.id === task.id)) {
     openMailboxPanel("No available task to accept.", { playSound: false });
+    return;
+  }
+
+  if (task.postedMinutes != null && state.timeMinutes < task.postedMinutes) {
+    openMailboxPanel("This letter hasn't been delivered yet.", { playSound: false });
+    return;
+  }
+
+  if (task.deadlineMinutes != null && state.timeMinutes > task.deadlineMinutes) {
+    openMailboxPanel("This task's deadline has passed.", { playSound: false });
     return;
   }
 
@@ -1039,6 +1425,8 @@ function onAcceptClicked() {
     if (pendingIndex >= 0) {
       state.pendingTasks.splice(pendingIndex, 1);
     }
+    state.dailyStats.accepted += 1;
+    state.hudText = `Task accepted: ${task.title}`;
     state.mailboxIndex = Math.min(state.mailboxIndex, Math.max(0, state.pendingTasks.length - 1));
     updateHudStats();
     hideOverlay();
@@ -1055,6 +1443,11 @@ function onCompleteClicked() {
 
 function onCloseClicked() {
   playSfx("click");
+  if (state.activeOverlay === "summary") {
+    state.summaryShownToday = false;
+    hideOverlay();
+    return;
+  }
   hideOverlay();
 }
 
@@ -1071,7 +1464,7 @@ function onMailboxClicked() {
 
 // ===== Input Handling =====
 function onStartClicked() {
-  beginDay();
+  setTimeMode("normal");
 }
 
 function onPauseClicked() {
@@ -1086,19 +1479,45 @@ function onEndDayClicked() {
   endDaySummary();
 }
 
-function onOptionsClicked() {
-  window.alert("Options will be available in a later build.");
-}
-
 function onKeyDown(event) {
-  const code = event.code || event.key;
-  if (code in keys) {
-    keys[code] = true;
-    if (code.startsWith("Arrow")) {
-      event.preventDefault();
+  const code = normalizeKey(event.code || event.key);
+  if (!code) return;
+  const isMovementKey =
+    code === "ArrowUp" ||
+    code === "ArrowDown" ||
+    code === "ArrowLeft" ||
+    code === "ArrowRight" ||
+    code === "KeyW" ||
+    code === "KeyA" ||
+    code === "KeyS" ||
+    code === "KeyD";
+
+  if (event.target === state.ui.adminInput) {
+    if (!isMovementKey && code !== "Escape") return;
+    if (isMovementKey) {
+      state.ui.adminInput?.blur();
     }
   }
-  if (code === "ArrowUp" || code === "ArrowDown" || code === "ArrowLeft" || code === "ArrowRight") {
+
+  const overlayBlocks = state.activeOverlay || state.controlsVisible;
+  if (overlayBlocks && isMovementKey) {
+    resetMovementKeys();
+    return;
+  }
+  keys[code] = true;
+  if (isMovementKey && state.mayor?.input) {
+    state.mayor.input.up = code === "ArrowUp" || code === "KeyW" || state.mayor.input.up;
+    state.mayor.input.down = code === "ArrowDown" || code === "KeyS" || state.mayor.input.down;
+    state.mayor.input.left = code === "ArrowLeft" || code === "KeyA" || state.mayor.input.left;
+    state.mayor.input.right = code === "ArrowRight" || code === "KeyD" || state.mayor.input.right;
+  }
+  if (code.startsWith("Arrow")) {
+    event.preventDefault();
+  }
+  if (
+    DEBUG_PLAYER_ENABLED &&
+    (code === "ArrowUp" || code === "ArrowDown" || code === "ArrowLeft" || code === "ArrowRight")
+  ) {
     moveDebugPlayer(code);
   }
   switch (code) {
@@ -1117,6 +1536,9 @@ function onKeyDown(event) {
         openMailboxPanel("Move closer to the mailbox to read letters.", { playSound: false });
       }
       break;
+    case "KeyF":
+      setTimeMode("fast");
+      break;
     case "KeyP":
       if (state.timeMode === "paused") {
         setTimeMode("normal");
@@ -1131,6 +1553,8 @@ function onKeyDown(event) {
     case "Escape":
       if (state.controlsVisible) {
         toggleControlsOverlay(false);
+      } else if (state.activeOverlay === "mailbox") {
+        hideOverlay();
       }
       break;
     default:
@@ -1139,9 +1563,15 @@ function onKeyDown(event) {
 }
 
 function onKeyUp(event) {
-  const code = event.code || event.key;
-  if (code in keys) {
+  const code = normalizeKey(event.code || event.key);
+  if (code && code in keys) {
     keys[code] = false;
+    if (state.mayor?.input) {
+      if (code === "ArrowUp" || code === "KeyW") state.mayor.input.up = false;
+      if (code === "ArrowDown" || code === "KeyS") state.mayor.input.down = false;
+      if (code === "ArrowLeft" || code === "KeyA") state.mayor.input.left = false;
+      if (code === "ArrowRight" || code === "KeyD") state.mayor.input.right = false;
+    }
   }
 }
 
@@ -1180,10 +1610,12 @@ function addChatBubble(npc) {
 }
 
 function greetAttempt() {
+  hideGreetHint();
   const nearbyNpc = findNearbyNpc();
   if (!nearbyNpc) return;
 
   addChatBubble(nearbyNpc);
+  state.tutorial.greetLearned = true;
 
   if (!state.currentTask) return;
   if (state.currentTask.type !== "greet") return;
@@ -1432,21 +1864,31 @@ function tileToWorld(position) {
 
 function npcTargetForState(npc, stateName) {
   if (!npc) return tileToWorld(null);
-  if (stateName === "work") return tileToWorld(npc.job);
-  if (stateName === "social") return tileToWorld(npc.social);
-  if (stateName === "sleep") return tileToWorld(npc.sleep);
-  return tileToWorld(npc.home);
+  const keyFromState = () => {
+    if (stateName?.includes("city_hall")) return "city_hall";
+    if (stateName?.includes("post_office")) return "post_office";
+    if (stateName?.includes("commercial")) return "commercial";
+    if (stateName?.includes("utilities")) return "utilities";
+    if (stateName?.includes("home") || stateName === "sleep") return "residential";
+    if (stateName === "work") return npc.job ?? npc.home;
+    return npc.home ?? "residential";
+  };
+  const key = keyFromState();
+  const anchorKey = key?.toString().toLowerCase().replace(/\s+/g, "_") ?? "town";
+  const anchor = state.mapAnchors[anchorKey] ?? { x: 12, y: 12, map: "town" };
+  return tileToWorld(anchor);
 }
 
 function updateNpcStateFromSchedule(npc) {
-  const schedule = state.npcRules.schedule?.default_day ?? [];
+  const schedule = state.npcRules.schedule?.[npc.name] ?? [];
   const nowMinutes = state.timeMinutes % (24 * 60);
-  let desired = "idle";
+  let desired = npc.state ?? "idle";
   for (const block of schedule) {
-    const start = parseClockToMinutes(block.start);
-    const end = parseClockToMinutes(block.end);
-    if (nowMinutes >= start && nowMinutes < end) {
-      desired = block.state ?? "idle";
+    const start = parseClockToMinutes(block.from);
+    const end = parseClockToMinutes(block.to);
+    const inRange = start <= end ? nowMinutes >= start && nowMinutes < end : nowMinutes >= start || nowMinutes < end;
+    if (inRange) {
+      desired = block.state ?? desired;
       break;
     }
   }
@@ -1456,7 +1898,6 @@ function updateNpcStateFromSchedule(npc) {
     const target = npcTargetForState(npc, desired);
     npc.target = target;
     npc.map = target.map;
-    console.info(`NPC ${npc.name} state -> ${desired}`);
   }
 }
 
@@ -1499,17 +1940,62 @@ function updateNpcSchedules(deltaMs) {
       idleNpcWander(npc, scaledDelta);
     }
   }
+  applyNpcSeparation();
+}
+
+function applyNpcSeparation() {
+  const npcs = state.npcs ?? [];
+  for (let i = 0; i < npcs.length; i += 1) {
+    for (let j = i + 1; j < npcs.length; j += 1) {
+      const a = npcs[i];
+      const b = npcs[j];
+      if (a.map !== b.map) continue;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const distSq = dx * dx + dy * dy;
+      const minDist = (a.radius + b.radius + 2) ** 2;
+      if (distSq < minDist && distSq > 0.01) {
+        const dist = Math.sqrt(distSq);
+        const overlap = (Math.sqrt(minDist) - dist) / 2;
+        const nx = dx / dist;
+        const ny = dy / dist;
+        a.x -= nx * overlap;
+        a.y -= ny * overlap;
+        b.x += nx * overlap;
+        b.y += ny * overlap;
+      }
+    }
+  }
 }
 
 async function loadNpcData() {
-  const roster = (await loadJsonSafe("oia/data/npc_starter_pack_v01/npc_roster.json", [])) ?? [];
-  state.npcRules.schedule = await loadJsonSafe("oia/data/npc_starter_pack_v01/npc_scheduler.json", {});
-  state.npcRules.behavior = await loadJsonSafe("oia/data/npc_starter_pack_v01/npc_behavior_tree.json", {});
-  state.npcRules.movement = await loadJsonSafe("oia/data/npc_starter_pack_v01/movement_rules.json", {});
-  state.npcRules.interactions = await loadJsonSafe("oia/data/npc_starter_pack_v01/interaction_rules.json", {});
+  const roster =
+    (await loadJsonSafe("agent_assets/NPC_STARTER_PACK_v01/oia/data/npc_starter_pack_v01/npc_roster.json", [])) ?? [];
+  state.npcRules.schedule = await loadJsonSafe(
+    "agent_assets/NPC_BEHAVIOR_SYSTEM_v01/oia/data/npc_behavior_system_v01/npc_scheduler.json",
+    {},
+  );
+  state.npcRules.behavior = await loadJsonSafe(
+    "agent_assets/NPC_BEHAVIOR_SYSTEM_v01/oia/data/npc_behavior_system_v01/npc_behavior_tree.json",
+    {},
+  );
+  state.npcRules.interactions = await loadJsonSafe(
+    "agent_assets/NPC_BEHAVIOR_SYSTEM_v01/oia/data/npc_behavior_system_v01/interaction_rules.json",
+    {},
+  );
+
+  const resolveAnchor = (label) => {
+    const key = (label ?? "").toString().toLowerCase().replace(/\s+/g, "_");
+    if (state.mapAnchors[key]) return state.mapAnchors[key];
+    if (state.mapAnchors.residential) return state.mapAnchors.residential;
+    const fallbackSpawn = state.maps?.town?.spawn;
+    if (fallbackSpawn) return { ...fallbackSpawn, map: "town" };
+    return { x: 12, y: 12, map: "town" };
+  };
 
   state.npcs = roster.map((npc, idx) => {
-    const start = tileToWorld(npc.home ?? { x: 0, y: 0, map: "town" });
+    const homeAnchor = resolveAnchor(npc.home ?? "residential");
+    const start = tileToWorld(homeAnchor);
     return {
       id: npc.id ?? `npc${idx}`,
       name: npc.name ?? `Citizen ${idx + 1}`,
@@ -1520,15 +2006,13 @@ async function loadNpcData() {
       radius: NPC_RADIUS,
       bobPhase: idx * 0.4,
       state: "idle",
-      job: npc.job,
+      job: npc.job ?? npc.home,
       home: npc.home,
-      social: npc.social,
-      sleep: npc.sleep,
+      social: npc.social ?? npc.home,
+      sleep: npc.sleep ?? npc.home,
       target: start,
     };
   });
-
-  spreadNpcStarts();
 }
 
 function spreadNpcStarts() {
@@ -2812,15 +3296,21 @@ function collidesWithBuildings(x, y, width, height) {
 
 function updateMayor(deltaMs) {
   if (!state.canvas) return;
+  if (state.activeOverlay || state.controlsVisible) {
+    state.mayor.velX = 0;
+    state.mayor.velY = 0;
+    return;
+  }
   state.doorCooldown = Math.max(0, state.doorCooldown - deltaMs);
   const deltaSeconds = deltaMs / 1000;
   let dx = 0;
   let dy = 0;
 
-  if (keys.ArrowUp || keys.KeyW) dy -= 1;
-  if (keys.ArrowDown || keys.KeyS) dy += 1;
-  if (keys.ArrowLeft || keys.KeyA) dx -= 1;
-  if (keys.ArrowRight || keys.KeyD) dx += 1;
+  const intent = state.mayor.input ?? {};
+  if (intent.up || keys.ArrowUp || keys.KeyW) dy -= 1;
+  if (intent.down || keys.ArrowDown || keys.KeyS) dy += 1;
+  if (intent.left || keys.ArrowLeft || keys.KeyA) dx -= 1;
+  if (intent.right || keys.ArrowRight || keys.KeyD) dx += 1;
 
   if (dx !== 0 && dy !== 0) {
     const inv = 1 / Math.sqrt(2);
@@ -2830,7 +3320,7 @@ function updateMayor(deltaMs) {
 
   const targetVX = dx * state.mayor.speed;
   const targetVY = dy * state.mayor.speed;
-  const lerpFactor = Math.min(1, deltaMs / movementSmoothingMs);
+  const lerpFactor = dx === 0 && dy === 0 ? 1 : Math.min(1, deltaMs / movementSmoothingMs);
   state.mayor.velX += (targetVX - state.mayor.velX) * lerpFactor;
   state.mayor.velY += (targetVY - state.mayor.velY) * lerpFactor;
   if (Math.abs(state.mayor.velX) < 0.05) state.mayor.velX = 0;
@@ -2864,6 +3354,17 @@ function updateMayor(deltaMs) {
   }
 }
 
+function update(deltaMs) {
+  if (state.activeOverlay === "summary") {
+    updateMailboxHint();
+    return;
+  }
+  updateNpcSchedules(deltaMs);
+  updateMayor(deltaMs);
+  updateGreetHint();
+  updateMailboxHint();
+}
+
 // ===== Render & Game Loop =====
 function render() {
   if (!state.ctx || !state.canvas) return;
@@ -2878,7 +3379,9 @@ function render() {
   drawBuildings();
   drawProps();
   drawNpcs();
-  drawDebugPlayer();
+  if (DEBUG_PLAYER_ENABLED) {
+    drawDebugPlayer();
+  }
   drawMayor();
   drawChatBubbles();
   state.ctx.restore();
@@ -2886,11 +3389,13 @@ function render() {
   drawUnderwaterAtmosphere();
   drawEdgeVignette();
   drawPixelGrid();
-  drawScanlines();
+  if (FX_SCANLINES_ENABLED && fxConfig.crtEnabled) {
+    drawScanlines();
+  }
 }
 
 function drawDebugPlayer() {
-  if (!state.ctx) return;
+  if (!DEBUG_PLAYER_ENABLED || !state.ctx) return;
   state.ctx.save();
   state.ctx.fillStyle = debugPlayer.color;
   state.ctx.strokeStyle = "#1a1a1a";
@@ -2935,25 +3440,17 @@ function gameLoop(timestamp) {
   state.lastFrameTimestamp = timestamp;
   state.lastDeltaMs = deltaMs;
 
-  updateNpcSchedules(deltaMs);
-  updateMayor(deltaMs);
-  updateGreetHint();
-  updateMailboxHint();
+  update(deltaMs);
   render();
   updateHudStats();
-
-  debugTickCounter += 1;
-  if (debugTickCounter % 30 === 0) {
-    console.log("gameLoop tick", debugTickCounter);
-  }
 
   window.requestAnimationFrame(gameLoop);
 }
 
 // ===== Initialization =====
 function setupUI() {
-  if (state.ui.btnStart) {
-    state.ui.btnStart.addEventListener("click", onStartClicked);
+  if (state.ui.btnPlay) {
+    state.ui.btnPlay.addEventListener("click", onStartClicked);
   }
   if (state.ui.btnPause) {
     state.ui.btnPause.addEventListener("click", onPauseClicked);
@@ -2964,14 +3461,15 @@ function setupUI() {
   if (state.ui.btnEndDay) {
     state.ui.btnEndDay.addEventListener("click", onEndDayClicked);
   }
-  if (state.ui.btnOptions) {
-    state.ui.btnOptions.addEventListener("click", onOptionsClicked);
-  }
   if (state.ui.btnControls) {
     state.ui.btnControls.addEventListener("click", () => toggleControlsOverlay(true));
   }
   if (state.ui.btnMailbox) {
     state.ui.btnMailbox.addEventListener("click", onMailboxClicked);
+  }
+  if (state.ui.adminForm) {
+    state.ui.adminForm.addEventListener("submit", handleAdminSubmit);
+    updateAdminStatus("", true);
   }
   if (state.ui.btnPrevTask) {
     state.ui.btnPrevTask.addEventListener("click", onPrevTaskClicked);
@@ -3019,16 +3517,19 @@ async function init() {
   await loadNpcData();
 
   state.ui.hud = document.getElementById("hud");
-  state.ui.stats = document.getElementById("stats");
+  state.ui.dayLabel = document.getElementById("dayLabel");
+  state.ui.timeLabel = document.getElementById("timeLabel");
+  state.ui.timeOfDayLabel = document.getElementById("timeOfDayLabel");
+  state.ui.speedLabel = document.getElementById("speedLabel");
+  state.ui.messageArea = document.getElementById("messageArea");
   state.ui.overlay = document.getElementById("overlay");
   state.ui.overlayTitle = document.getElementById("overlayTitle");
   state.ui.overlayBody = document.getElementById("overlayBody");
-  state.ui.btnStart = document.getElementById("btnStart");
+  state.ui.btnPlay = document.getElementById("btnPlay");
   state.ui.btnPause = document.getElementById("btnPause");
   state.ui.btnFast = document.getElementById("btnFast");
   state.ui.btnMailbox = document.getElementById("btnMailbox");
   state.ui.btnEndDay = document.getElementById("btnEndDay");
-  state.ui.btnOptions = document.getElementById("btnOptions");
   state.ui.btnControls = document.getElementById("btnControls");
   state.ui.btnPrevTask = document.getElementById("btnPrevTask");
   state.ui.btnNextTask = document.getElementById("btnNextTask");
@@ -3040,14 +3541,17 @@ async function init() {
   state.ui.btnCloseControls = document.getElementById("btnCloseControls");
   state.ui.greetHint = document.getElementById("greetHint");
   state.ui.mailboxHint = document.getElementById("mailboxHint");
-  state.ui.taskHud = document.getElementById("taskHud");
+  state.ui.taskList = document.getElementById("taskList");
+  state.ui.taskStatus = document.getElementById("taskStatus");
+  state.ui.adminForm = document.getElementById("adminForm");
+  state.ui.adminInput = document.getElementById("adminInput");
+  state.ui.adminStatus = document.getElementById("adminStatus");
 
   state.canvas = document.getElementById("game");
   state.ctx = state.canvas ? state.canvas.getContext("2d") : null;
 
   applyMap("town", state.maps.town?.spawn ?? { x: 7, y: 6 });
-  state.mayor.x = (state.spawnPoint?.x ?? 7) * TILE_SIZE;
-  state.mayor.y = (state.spawnPoint?.y ?? 6) * TILE_SIZE;
+  placeMayorAtTile(state.spawnPoint ?? { x: 7, y: 6 });
   centerDebugPlayer();
 
   setupUI();
