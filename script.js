@@ -328,6 +328,10 @@ function parseClockToMinutes(str) {
   return h * 60 + m;
 }
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
 // ===== Map & Data Loading =====
 function normalizeMap(mapData) {
   if (!mapData) return null;
@@ -434,6 +438,52 @@ function onTimeTick() {
   if (summaryTriggered) {
     state.minuteFraction = 0;
   }
+}
+
+function advanceOneMinute() {
+  const prevHour = Math.floor(state.timeMinutes / 60) % 24;
+  state.timeMinutes += 1;
+  let summaryTriggered = false;
+
+  if (!state.summaryShownToday && state.timeMinutes >= END_OF_DAY_MINUTES) {
+    triggerDailySummary();
+    summaryTriggered = true;
+  }
+
+  if (state.timeMinutes >= 24 * 60) {
+    state.day += 1;
+    state.timeMinutes = state.timeMinutes % (24 * 60);
+    state.summaryShownToday = false;
+    state.lastHour = Math.floor(state.timeMinutes / 60);
+  }
+
+  const newHour = Math.floor(state.timeMinutes / 60) % 24;
+  if (newHour !== prevHour) {
+    state.lastHour = newHour;
+  }
+  return summaryTriggered;
+}
+
+function setTimeMode(mode) {
+  state.timeMode = mode;
+  if (mode === "paused") {
+    state.timeSpeed = 0;
+    state.running = false;
+    state.isPaused = true;
+    stopTimeTimer();
+  } else if (mode === "fast") {
+    state.timeSpeed = FAST_TIME_SPEED;
+    state.running = true;
+    state.isPaused = false;
+    startTimeTimer();
+  } else {
+    state.timeSpeed = DEFAULT_TIME_SPEED;
+    state.running = true;
+    state.isPaused = false;
+    startTimeTimer();
+  }
+  updateButtonStates();
+  updateHudStats();
 }
 
 function advanceOneMinute() {
@@ -1341,10 +1391,11 @@ function moveNpcTowardsTarget(npc, deltaMs) {
 }
 
 function updateNpcSchedules(deltaMs) {
-  if (state.timeSpeed <= 0) return;
+  if (state.isPaused || state.timeSpeed <= 0) return;
+  const scaledDelta = deltaMs * state.timeSpeed;
   for (const npc of state.npcs) {
     updateNpcStateFromSchedule(npc);
-    moveNpcTowardsTarget(npc, deltaMs);
+    moveNpcTowardsTarget(npc, scaledDelta);
   }
 }
 
@@ -1374,6 +1425,57 @@ async function loadNpcData() {
       target: start,
     };
   });
+
+  spreadNpcStarts();
+}
+
+function spreadNpcStarts() {
+  if (!Array.isArray(state.npcs)) return;
+  const used = new Set();
+  const offsets = [
+    { x: 0, y: 0 },
+    { x: 1, y: 0 },
+    { x: -1, y: 0 },
+    { x: 0, y: 1 },
+    { x: 0, y: -1 },
+    { x: 1, y: 1 },
+    { x: -1, y: 1 },
+    { x: 1, y: -1 },
+    { x: -1, y: -1 },
+    { x: 2, y: 0 },
+    { x: -2, y: 0 },
+    { x: 0, y: 2 },
+    { x: 0, y: -2 },
+  ];
+
+  for (const npc of state.npcs) {
+    const mapKey = npc.home?.map ?? npc.map ?? state.currentMapKey;
+    const mapData = state.maps?.[mapKey] ?? state.maps?.town ?? getCurrentMap();
+    const cols = mapData?.cols ?? gridCols ?? 16;
+    const rows = mapData?.rows ?? gridRows ?? 9;
+    const baseTileX = clamp(Math.round(npc.home?.x ?? (npc.x - TILE_SIZE / 2) / TILE_SIZE), 0, cols - 1);
+    const baseTileY = clamp(Math.round(npc.home?.y ?? (npc.y - TILE_SIZE / 2) / TILE_SIZE), 0, rows - 1);
+
+    let chosen = null;
+    for (const offset of offsets) {
+      const tileX = clamp(baseTileX + offset.x, 0, cols - 1);
+      const tileY = clamp(baseTileY + offset.y, 0, rows - 1);
+      const key = `${mapKey}:${tileX}:${tileY}`;
+      if (used.has(key)) continue;
+      used.add(key);
+      chosen = { tileX, tileY };
+      break;
+    }
+
+    if (!chosen) {
+      chosen = { tileX: baseTileX, tileY: baseTileY };
+    }
+
+    npc.map = mapKey;
+    npc.x = chosen.tileX * TILE_SIZE + TILE_SIZE / 2;
+    npc.y = chosen.tileY * TILE_SIZE + TILE_SIZE / 2;
+    npc.target = npc.target ?? { x: npc.x, y: npc.y, map: mapKey };
+  }
 }
 
 function initNpcs() {
