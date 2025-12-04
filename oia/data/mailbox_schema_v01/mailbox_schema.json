@@ -1,0 +1,3 @@
+{
+  "fields": ["task_id", "type", "requester", "building", "priority", "posted_at", "deadline", "description", "status", "reward"]
+}

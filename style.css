@@ -1,15 +1,16 @@
 :root {
-  --hud-bg: rgba(16, 39, 51, 0.9);
-  --hud-button: #16455a;
-  --hud-button-border: #1b5b77;
-  --hud-button-hover: #1f6079;
-  --text: #e9f4ff;
-  --bg-top: #0f2731;
-  --bg-bottom: #0b171f;
-  --panel-bg: #102733;
-  --canvas-outline: #1e708d;
+  --hud-bg: rgba(8, 34, 44, 0.92);
+  --hud-button: #1c5b68;
+  --hud-button-border: #2c7d8c;
+  --hud-button-hover: #2f8999;
+  --text: #e8fbff;
+  --accent-warm: #ffd7a3;
+  --bg-top: #0b2f3b;
+  --bg-bottom: #041c25;
+  --panel-bg: #0d2330;
+  --canvas-outline: #48a9ba;
   --canvas-shadow: 0 18px 36px rgba(0, 0, 0, 0.45);
-  --hud-glow: 0 0 0 1px rgba(79, 176, 227, 0.25), 0 4px 12px rgba(0, 0, 0, 0.35);
+  --hud-glow: 0 0 0 1px rgba(76, 191, 209, 0.25), 0 4px 12px rgba(0, 0, 0, 0.35);
 }
 
 * {
@@ -24,7 +25,9 @@ body {
   margin: 0;
   padding: 0;
   font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  background: linear-gradient(135deg, var(--bg-top), var(--bg-bottom));
+  background: radial-gradient(circle at 20% 18%, rgba(89, 181, 197, 0.24), transparent 36%),
+    radial-gradient(circle at 82% 12%, rgba(255, 193, 149, 0.2), transparent 30%),
+    linear-gradient(140deg, var(--bg-top), var(--bg-bottom));
   color: var(--text);
   display: flex;
   flex-direction: column;
@@ -43,42 +46,43 @@ body {
   top: 0;
   left: 0;
   right: 0;
-  height: 78px;
+  height: 92px;
   display: flex;
   align-items: center;
-  padding: 0 22px;
+  padding: 0 30px;
   background: var(--hud-bg);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(4px);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(7px);
   z-index: 10;
-  gap: 18px;
-  border-bottom: 1px solid rgba(79, 176, 227, 0.2);
+  gap: 22px;
+  border-bottom: 1px solid rgba(72, 188, 204, 0.3);
 }
 
 #hud .title {
   font-weight: 800;
-  margin-right: 16px;
-  letter-spacing: 0.02em;
+  margin-right: 20px;
+  letter-spacing: 0.04em;
   text-shadow: 0 2px 6px rgba(0, 0, 0, 0.55), 0 0 10px rgba(79, 176, 227, 0.2);
-  font-size: 1.32rem;
+  font-size: 1.44rem;
 }
 
 #hud .controls {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
 #hud button {
-  padding: 12px 18px;
-  border-radius: 8px;
+  padding: 13px 20px;
+  border-radius: 10px;
   border: 1px solid var(--hud-button-border);
-  background: var(--hud-button);
+  background: linear-gradient(180deg, rgba(50, 150, 168, 0.8), var(--hud-button));
   color: var(--text);
   cursor: pointer;
   transition: background 120ms ease, transform 120ms ease, box-shadow 120ms ease;
   box-shadow: var(--hud-glow);
-  font-size: 0.98rem;
+  font-size: 1.02rem;
+  letter-spacing: 0.01em;
 }
 
 #hud button:hover {
@@ -110,40 +114,70 @@ body {
 
 #stats {
   margin-left: auto;
-  font-size: 1.36rem;
+  font-size: 1.52rem;
   font-weight: 800;
   line-height: 1.4;
   opacity: 0.98;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.7), 0 0 10px rgba(79, 176, 227, 0.22);
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.7), 0 0 10px rgba(72, 191, 204, 0.22);
   transition: opacity 120ms ease;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(19, 62, 76, 0.55);
+  border: 1px solid rgba(72, 191, 204, 0.28);
 }
 
 #stats.hud-pulse {
   animation: hudPulse 140ms ease;
 }
 
+#taskHud {
+  font-size: 1rem;
+  opacity: 0.94;
+  margin-left: auto;
+  padding: 8px 12px;
+  border-radius: 9px;
+  background: rgba(10, 44, 54, 0.55);
+  border: 1px solid rgba(78, 183, 199, 0.28);
+}
+
 .canvas-frame {
-  margin-top: 96px;
-  padding: 16px 18px 20px;
-  border-radius: 14px;
+  margin-top: 108px;
+  padding: 18px 20px 22px;
+  border-radius: 16px;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
-  background: linear-gradient(160deg, rgba(12, 35, 46, 0.9), rgba(8, 22, 29, 0.92));
+  background: linear-gradient(160deg, rgba(7, 42, 53, 0.92), rgba(4, 26, 34, 0.95));
   position: relative;
 }
 
 #game {
-  background: #02070b;
+  background: #041420;
   border: 2px solid var(--canvas-outline);
   box-shadow: var(--canvas-shadow);
   width: 768px;
   height: 432px;
-  border-radius: 14px;
+  border-radius: 16px;
   display: block;
 }
 
 #greetHint {
   position: absolute;
   left: 18px;
+  bottom: 18px;
+  padding: 9px 13px;
+  border-radius: 8px;
+  background: linear-gradient(145deg, rgba(10, 20, 30, 0.92), rgba(12, 36, 48, 0.9));
+  color: #f5fbff;
+  font-weight: 700;
+  font-size: 1.05rem;
+  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(121, 204, 255, 0.38);
+  letter-spacing: 0.015em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6), 0 0 6px rgba(0, 0, 0, 0.4);
+}
+
+#mailboxHint {
+  position: absolute;
+  right: 18px;
   bottom: 18px;
   padding: 9px 13px;
   border-radius: 8px;
