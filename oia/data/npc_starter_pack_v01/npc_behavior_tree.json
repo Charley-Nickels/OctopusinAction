@@ -1,0 +1,11 @@
+{
+  "states": ["idle", "move", "work", "social", "sleep", "interact"],
+  "transitions": {
+    "idle": ["move", "sleep"],
+    "move": ["work", "social", "idle", "sleep"],
+    "work": ["move", "social"],
+    "social": ["move", "idle"],
+    "sleep": ["idle"],
+    "interact": ["social", "idle"]
+  }
+}

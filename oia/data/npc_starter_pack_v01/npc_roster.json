@@ -1,0 +1,20 @@
+[
+  {
+    "id": "clerk",
+    "name": "Clerk",
+    "species": "duck",
+    "home": { "map": "town", "x": 7, "y": 2 },
+    "job": { "map": "city_hall", "x": 3, "y": 2 },
+    "social": { "map": "town", "x": 8, "y": 4 },
+    "sleep": { "map": "town", "x": 12, "y": 6 }
+  },
+  {
+    "id": "vendor",
+    "name": "Vendor",
+    "species": "beaver",
+    "home": { "map": "town", "x": 2, "y": 2 },
+    "job": { "map": "shop", "x": 3, "y": 2 },
+    "social": { "map": "town", "x": 4, "y": 6 },
+    "sleep": { "map": "town", "x": 10, "y": 6 }
+  }
+]
