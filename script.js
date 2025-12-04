@@ -212,6 +212,18 @@ const state = {
   summarySnapshot: [],
 };
 
+const debugPlayer = { x: 384, y: 216, size: 18, color: "#ffd166" };
+let debugTickCounter = 0;
+
+document.addEventListener("keydown", (event) => {
+  console.log("Key pressed:", event.key);
+  if (event.key === "ArrowUp" || event.key === "ArrowDown" || event.key === "ArrowLeft" || event.key === "ArrowRight") {
+    console.log(`${event.key} pressed`);
+  }
+  onKeyDown(event);
+});
+document.addEventListener("keyup", onKeyUp);
+
 function normalizeTask(task) {
   return {
     id: task.task_id ?? task.id ?? "",
@@ -332,6 +344,25 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function centerDebugPlayer() {
+  if (!state.canvas) return;
+  debugPlayer.x = state.canvas.width / 2;
+  debugPlayer.y = state.canvas.height / 2;
+}
+
+function moveDebugPlayer(code) {
+  const step = TILE_SIZE * 0.5;
+  if (code === "ArrowUp") debugPlayer.y -= step;
+  if (code === "ArrowDown") debugPlayer.y += step;
+  if (code === "ArrowLeft") debugPlayer.x -= step;
+  if (code === "ArrowRight") debugPlayer.x += step;
+
+  const maxX = (state.canvas?.width ?? gridCols * TILE_SIZE) - debugPlayer.size;
+  const maxY = (state.canvas?.height ?? gridRows * TILE_SIZE) - debugPlayer.size;
+  debugPlayer.x = clamp(debugPlayer.x, debugPlayer.size, maxX);
+  debugPlayer.y = clamp(debugPlayer.y, debugPlayer.size, maxY);
+}
+
 // ===== Map & Data Loading =====
 function normalizeMap(mapData) {
   if (!mapData) return null;
@@ -437,6 +468,52 @@ function onTimeTick() {
   }
   if (summaryTriggered) {
     state.minuteFraction = 0;
+  }
+  updateButtonStates();
+  updateHudStats();
+}
+
+function advanceOneMinute() {
+  const prevHour = Math.floor(state.timeMinutes / 60) % 24;
+  state.timeMinutes += 1;
+  let summaryTriggered = false;
+
+  if (!state.summaryShownToday && state.timeMinutes >= END_OF_DAY_MINUTES) {
+    triggerDailySummary();
+    summaryTriggered = true;
+  }
+
+  if (state.timeMinutes >= 24 * 60) {
+    state.day += 1;
+    state.timeMinutes = state.timeMinutes % (24 * 60);
+    state.summaryShownToday = false;
+    state.lastHour = Math.floor(state.timeMinutes / 60);
+  }
+
+  const newHour = Math.floor(state.timeMinutes / 60) % 24;
+  if (newHour !== prevHour) {
+    state.lastHour = newHour;
+  }
+  return summaryTriggered;
+}
+
+function setTimeMode(mode) {
+  state.timeMode = mode;
+  if (mode === "paused") {
+    state.timeSpeed = 0;
+    state.running = false;
+    state.isPaused = true;
+    stopTimeTimer();
+  } else if (mode === "fast") {
+    state.timeSpeed = FAST_TIME_SPEED;
+    state.running = true;
+    state.isPaused = false;
+    startTimeTimer();
+  } else {
+    state.timeSpeed = DEFAULT_TIME_SPEED;
+    state.running = true;
+    state.isPaused = false;
+    startTimeTimer();
   }
   updateButtonStates();
   updateHudStats();
@@ -1021,6 +1098,9 @@ function onKeyDown(event) {
       event.preventDefault();
     }
   }
+  if (code === "ArrowUp" || code === "ArrowDown" || code === "ArrowLeft" || code === "ArrowRight") {
+    moveDebugPlayer(code);
+  }
   switch (code) {
     case "Space":
       event.preventDefault();
@@ -1397,12 +1477,27 @@ function moveNpcTowardsTarget(npc, deltaMs) {
   npc.y += (dy / dist) * step;
 }
 
+function idleNpcWander(npc, deltaMs) {
+  const driftSpeed = 10;
+  npc.idlePhase = (npc.idlePhase ?? Math.random() * Math.PI * 2) + deltaMs / 900;
+  const driftX = Math.cos(npc.idlePhase) * driftSpeed * (deltaMs / 1000);
+  const driftY = Math.sin(npc.idlePhase) * driftSpeed * (deltaMs / 1000);
+  const maxX = (state.canvas?.width ?? gridCols * TILE_SIZE) - npc.radius;
+  const maxY = (state.canvas?.height ?? gridRows * TILE_SIZE) - npc.radius;
+  npc.x = clamp(npc.x + driftX, npc.radius, maxX);
+  npc.y = clamp(npc.y + driftY, npc.radius, maxY);
+}
+
 function updateNpcSchedules(deltaMs) {
   if (state.isPaused || state.timeSpeed <= 0 || !state.running) return;
   const scaledDelta = deltaMs * state.timeSpeed;
   for (const npc of state.npcs) {
     updateNpcStateFromSchedule(npc);
     moveNpcTowardsTarget(npc, scaledDelta);
+    const dist = npc.target ? Math.hypot(npc.target.x - npc.x, npc.target.y - npc.y) : 0;
+    if (!npc.target || dist < 2) {
+      idleNpcWander(npc, scaledDelta);
+    }
   }
 }
 
@@ -1465,19 +1560,23 @@ function spreadNpcStarts() {
     return { tileX: clamp(baseX, 0, cols - 1), tileY: clamp(baseY, 0, rows - 1) };
   };
 
+  let slotIndex = 0;
   for (const npc of state.npcs) {
     const mapKey = npc.home?.map ?? npc.map ?? state.currentMapKey;
     const mapData = state.maps?.[mapKey] ?? state.maps?.town ?? getCurrentMap();
     const cols = mapData?.cols ?? gridCols ?? 16;
     const rows = mapData?.rows ?? gridRows ?? 9;
-    const baseTileX = clamp(Math.round(npc.home?.x ?? (npc.x - TILE_SIZE / 2) / TILE_SIZE), 0, cols - 1);
-    const baseTileY = clamp(Math.round(npc.home?.y ?? (npc.y - TILE_SIZE / 2) / TILE_SIZE), 0, rows - 1);
+    const spreadCol = slotIndex % Math.max(1, cols - 2);
+    const spreadRow = Math.floor(slotIndex / Math.max(1, cols - 2));
+    const baseTileX = clamp(1 + spreadCol, 0, cols - 1);
+    const baseTileY = clamp(1 + spreadRow, 0, rows - 1);
 
     const chosen = findSpot(mapKey, mapData, baseTileX, baseTileY);
     npc.map = mapKey;
     npc.x = chosen.tileX * TILE_SIZE + TILE_SIZE / 2;
     npc.y = chosen.tileY * TILE_SIZE + TILE_SIZE / 2;
     npc.target = npc.target ?? { x: npc.x, y: npc.y, map: mapKey };
+    slotIndex += 1;
   }
 }
 
@@ -2779,6 +2878,7 @@ function render() {
   drawBuildings();
   drawProps();
   drawNpcs();
+  drawDebugPlayer();
   drawMayor();
   drawChatBubbles();
   state.ctx.restore();
@@ -2787,6 +2887,20 @@ function render() {
   drawEdgeVignette();
   drawPixelGrid();
   drawScanlines();
+}
+
+function drawDebugPlayer() {
+  if (!state.ctx) return;
+  state.ctx.save();
+  state.ctx.fillStyle = debugPlayer.color;
+  state.ctx.strokeStyle = "#1a1a1a";
+  state.ctx.lineWidth = 2;
+  const size = debugPlayer.size;
+  state.ctx.beginPath();
+  state.ctx.rect(debugPlayer.x - size / 2, debugPlayer.y - size / 2, size, size);
+  state.ctx.fill();
+  state.ctx.stroke();
+  state.ctx.restore();
 }
 
 function drawUnderwaterAtmosphere() {
@@ -2827,6 +2941,11 @@ function gameLoop(timestamp) {
   updateMailboxHint();
   render();
   updateHudStats();
+
+  debugTickCounter += 1;
+  if (debugTickCounter % 30 === 0) {
+    console.log("gameLoop tick", debugTickCounter);
+  }
 
   window.requestAnimationFrame(gameLoop);
 }
@@ -2929,10 +3048,9 @@ async function init() {
   applyMap("town", state.maps.town?.spawn ?? { x: 7, y: 6 });
   state.mayor.x = (state.spawnPoint?.x ?? 7) * TILE_SIZE;
   state.mayor.y = (state.spawnPoint?.y ?? 6) * TILE_SIZE;
+  centerDebugPlayer();
 
   setupUI();
-  window.addEventListener("keydown", onKeyDown);
-  window.addEventListener("keyup", onKeyUp);
   state.loopStarted = true;
   beginDay();
   window.requestAnimationFrame(gameLoop);
