@@ -23,6 +23,10 @@
 const TILE_SIZE = 48;
 const GREET_RADIUS = 40;
 const NPC_RADIUS = 7;
+const DEFAULT_TIME_SPEED = 1;
+const FAST_TIME_SPEED = 4;
+const START_OF_DAY_MINUTES = 9 * 60;
+const END_OF_DAY_MINUTES = 17 * 60;
 const MAYOR_BODY = "#cbb3f2";
 const MAYOR_SUIT = "#b377c9";
 const MAYOR_ACCENT = "#f19db8";
@@ -64,31 +68,38 @@ const npcSpeciesStyles = {
   },
 };
 
+const tileLegend = {
+  grass: 0,
+  path: 1,
+  water: 2,
+  interior: 3,
+};
+
 const tilePalette = {
-  grassBase: "#0d2d1c",
-  grassLight: "#114025",
-  pathBase: "#7b5537",
-  pathWarm: "#9a6b42",
-  pathEdge: "#c7924f",
-  waterDeep: "#0c2436",
-  waterMid: "#123750",
-  waterLight: "#1b4a69",
-  shoreLine: "#6db8d5",
+  grassBase: "#0c2f36",
+  grassLight: "#114454",
+  pathBase: "#5f6c6a",
+  pathWarm: "#7b918e",
+  pathEdge: "#c7d7d1",
+  waterDeep: "#0a2536",
+  waterMid: "#103b52",
+  waterLight: "#1f5f7a",
+  shoreLine: "#7ad7d8",
 };
 
 const buildingPalette = {
-  civicWall: "#6f86a5",
-  civicRoof: "#30435a",
-  civicAccent: "#d6e2ef",
-  shopWall: "#9b7953",
-  shopRoof: "#5e4936",
-  shopAccent: "#f1c07b",
-  houseWall: "#759461",
-  houseRoof: "#4c5d3d",
-  houseAccent: "#dbe7c8",
-  marketWall: "#a56b7c",
-  marketRoof: "#5f3b47",
-  shadow: "rgba(0, 0, 0, 0.18)",
+  civicWall: "#6c8da6",
+  civicRoof: "#2d4056",
+  civicAccent: "#ffe2bf",
+  shopWall: "#7ba6a5",
+  shopRoof: "#466369",
+  shopAccent: "#ffd3a1",
+  houseWall: "#6aa08d",
+  houseRoof: "#3f6152",
+  houseAccent: "#e7f5e7",
+  marketWall: "#7397b5",
+  marketRoof: "#3e566d",
+  shadow: "rgba(0, 0, 0, 0.14)",
 };
 
 const propPalette = {
@@ -145,6 +156,12 @@ const state = {
   timeMinutes: 8 * 60,
   day: 1,
   running: false,
+  isPaused: true,
+  timeTimerId: null,
+  minuteFraction: 0,
+  timeSpeed: DEFAULT_TIME_SPEED,
+  timeMode: "normal",
+  lastHour: 8,
   lastFrameTimestamp: null,
   loopStarted: false,
   mayor: {
@@ -158,6 +175,12 @@ const state = {
     walkPhase: 0,
   },
   npcs: [],
+  npcRules: {
+    schedule: null,
+    behavior: null,
+    movement: null,
+    interactions: null,
+  },
   pendingTasks: [],
   completedTasks: [],
   currentTask: null,
@@ -166,29 +189,43 @@ const state = {
     budget: 0,
     goodwill: 0,
   },
-  accumulatedMs: 0,
   screenShake: { remaining: 0, duration: 0, magnitude: 0 },
   controlsVisible: false,
   hudPulseTimeout: null,
   lastDeltaMs: 0,
   hudText: "",
+  taskHudText: "",
   ui: {},
   canvas: null,
   ctx: null,
   sfx: {},
+  maps: {},
+  currentMapKey: "town",
+  collisionGrid: [],
+  mailboxSpot: null,
+  spawnPoint: null,
+  daySummary: null,
+  doorCooldown: 0,
+  mailboxOpen: false,
+  activeOverlay: null,
+  summaryShownToday: false,
+  summarySnapshot: [],
 };
 
 function normalizeTask(task) {
   return {
-    id: task.id ?? "",
-    title: task.title ?? "Untitled Task",
-    body: task.body ?? "",
-    from: task.from ?? "",
+    id: task.task_id ?? task.id ?? "",
+    title: task.title ?? task.description ?? "Untitled Task",
+    body: task.body ?? task.description ?? "",
+    from: task.from ?? task.requester ?? "",
     reward: task.reward ?? 0,
     type: task.type ?? "unknown",
     goal: task.goal ?? 0,
     progress: task.progress ?? 0,
-    state: task.state ?? "available",
+    state: task.state ?? task.status ?? "available",
+    building: task.building ?? "",
+    deadlineMinutes: task.deadline ? parseClockToMinutes(task.deadline) : null,
+    postedMinutes: task.posted_at ? parseClockToMinutes(task.posted_at) : null,
   };
 }
 
@@ -201,6 +238,7 @@ let shorelineMask = [];
 let groundDetails = [];
 let buildings = [];
 let props = [];
+let currentDoors = [];
 
 // ===== SFX =====
 function resolveSfxPath(name) {
@@ -270,24 +308,182 @@ async function loadManifest() {
   }
 }
 
+async function loadJsonSafe(path, fallback = null) {
+  try {
+    const res = await fetch(path);
+    if (!res.ok) {
+      console.warn(`Failed to load ${path}: ${res.status}`);
+      return fallback;
+    }
+    return await res.json();
+  } catch (err) {
+    console.warn(`Error loading ${path}`, err);
+    return fallback;
+  }
+}
+
+function parseClockToMinutes(str) {
+  if (!str || typeof str !== "string") return 0;
+  const [h, m] = str.split(":").map((p) => parseInt(p, 10) || 0);
+  return h * 60 + m;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+// ===== Map & Data Loading =====
+function normalizeMap(mapData) {
+  if (!mapData) return null;
+  return {
+    name: mapData.name ?? "unknown",
+    kind: mapData.kind ?? (mapData.name === "town" ? "town" : "interior"),
+    cols: mapData.cols ?? gridCols,
+    rows: mapData.rows ?? gridRows,
+    tileSize: mapData.tileSize ?? TILE_SIZE,
+    tiles: mapData.tiles ?? [],
+    collision: mapData.collision ?? [],
+    doors: mapData.doors ?? [],
+    mailbox: mapData.mailbox ?? null,
+    spawn: mapData.spawn ?? null,
+    buildings: mapData.buildings ?? [],
+  };
+}
+
+async function loadMapData() {
+  const town = normalizeMap(await loadJsonSafe("oia/data/town_map_v01.json"));
+  const cityHall = normalizeMap(await loadJsonSafe("oia/data/interiors_v01/city_hall.json"));
+  const shop = normalizeMap(await loadJsonSafe("oia/data/interiors_v01/shop.json"));
+
+  const maps = {};
+  for (const map of [town, cityHall, shop]) {
+    if (map) {
+      maps[map.name] = map;
+    }
+  }
+  state.maps = maps;
+  if (!state.maps.town) {
+    console.warn("Town map missing; falling back to procedural layout");
+  }
+}
+
+function getCurrentMap() {
+  return state.maps?.[state.currentMapKey] ?? null;
+}
+
+function applyMap(mapKey, spawnOverride = null) {
+  state.currentMapKey = mapKey;
+  const map = getCurrentMap();
+  if (map) {
+    gridCols = map.cols ?? gridCols;
+    gridRows = map.rows ?? gridRows;
+    worldTiles = map.tiles ?? worldTiles;
+    state.collisionGrid = map.collision ?? [];
+    currentDoors = map.doors ?? [];
+    state.mailboxSpot = map.mailbox ?? null;
+    state.spawnPoint = spawnOverride ?? map.spawn ?? state.spawnPoint;
+  }
+  buildWorldTiles(map);
+  buildBuildings(map);
+  buildProps(map);
+  if (state.spawnPoint && spawnOverride) {
+    state.mayor.x = state.spawnPoint.x * TILE_SIZE;
+    state.mayor.y = state.spawnPoint.y * TILE_SIZE;
+  }
+}
+
+function findDoorAt(tileX, tileY) {
+  const map = getCurrentMap();
+  if (!map) return null;
+  return (map.doors ?? []).find((d) => d.from?.x === tileX && d.from?.y === tileY) ?? null;
+}
+
+function warpToDoor(door) {
+  if (!door || !door.toMap) return;
+  if (!state.maps[door.toMap]) return;
+  const spawn = door.to ? { x: door.to.x, y: door.to.y } : null;
+  applyMap(door.toMap, spawn);
+  if (spawn) {
+    state.mayor.x = spawn.x * TILE_SIZE;
+    state.mayor.y = spawn.y * TILE_SIZE;
+  }
+}
+
 // ===== Time System =====
 function isWorkHour(timeMinutes) {
   const hour = Math.floor(timeMinutes / 60);
   return hour >= 9 && hour <= 16;
 }
 
-function updateTime(deltaMs) {
-  state.accumulatedMs += deltaMs;
+function startTimeTimer() {
+  if (state.timeTimerId !== null) return;
+  state.timeTimerId = window.setInterval(onTimeTick, 1000);
+}
 
-  while (state.accumulatedMs >= msPerIngameMinute) {
-    state.accumulatedMs -= msPerIngameMinute;
-    state.timeMinutes += 1;
+function stopTimeTimer() {
+  if (state.timeTimerId === null) return;
+  window.clearInterval(state.timeTimerId);
+  state.timeTimerId = null;
+}
 
-    if (state.timeMinutes >= 24 * 60) {
-      state.day += 1;
-      state.timeMinutes = 0;
-    }
+function onTimeTick() {
+  if (state.isPaused) return;
+  const minutesPerSecond = (1000 / msPerIngameMinute) * state.timeSpeed;
+  state.minuteFraction += minutesPerSecond;
+  let summaryTriggered = false;
+  while (state.minuteFraction >= 1 && !summaryTriggered) {
+    state.minuteFraction -= 1;
+    summaryTriggered = advanceOneMinute();
   }
+  if (summaryTriggered) {
+    state.minuteFraction = 0;
+  }
+}
+
+function advanceOneMinute() {
+  const prevHour = Math.floor(state.timeMinutes / 60) % 24;
+  state.timeMinutes += 1;
+  let summaryTriggered = false;
+
+  if (!state.summaryShownToday && state.timeMinutes >= END_OF_DAY_MINUTES) {
+    triggerDailySummary();
+    summaryTriggered = true;
+  }
+
+  if (state.timeMinutes >= 24 * 60) {
+    state.day += 1;
+    state.timeMinutes = state.timeMinutes % (24 * 60);
+    state.summaryShownToday = false;
+    state.lastHour = Math.floor(state.timeMinutes / 60);
+  }
+
+  const newHour = Math.floor(state.timeMinutes / 60) % 24;
+  if (newHour !== prevHour) {
+    state.lastHour = newHour;
+  }
+  return summaryTriggered;
+}
+
+function setTimeMode(mode) {
+  state.timeMode = mode;
+  if (mode === "paused") {
+    state.timeSpeed = 0;
+    state.running = false;
+    state.isPaused = true;
+    stopTimeTimer();
+  } else if (mode === "fast") {
+    state.timeSpeed = FAST_TIME_SPEED;
+    state.running = true;
+    state.isPaused = false;
+    startTimeTimer();
+  } else {
+    state.timeSpeed = DEFAULT_TIME_SPEED;
+    state.running = true;
+    state.isPaused = false;
+    startTimeTimer();
+  }
+  updateButtonStates();
+  updateHudStats();
 }
 
 // ===== HUD & UI Helpers =====
@@ -297,6 +493,7 @@ function updateHudStats() {
   const hour = Math.floor(totalMinutes / 60) % 24;
   const minute = totalMinutes % 60;
   const formattedTime = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  const speedLabel = state.timeMode === "fast" ? "Fast" : state.timeMode === "paused" ? "Paused" : "Normal";
 
   let taskText = "Task: (none yet)";
   if (state.currentTask) {
@@ -312,7 +509,7 @@ function updateHudStats() {
     taskText = "Task: Available (check mailbox)";
   }
 
-  const nextText = `Day ${state.day} — ${formattedTime} — ${taskText}`;
+  const nextText = `Day ${state.day} — ${formattedTime} (${speedLabel}) — ${taskText}`;
   if (state.hudText !== nextText) {
     state.hudText = nextText;
     state.ui.stats.textContent = nextText;
@@ -329,12 +526,39 @@ function updateHudStats() {
       state.hudPulseTimeout = null;
     }, hudFadeDurationMs + 40);
   }
+  updateTaskHud();
+}
+
+function formatMinutes(minutes) {
+  const h = Math.floor(minutes / 60) % 24;
+  const m = minutes % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function updateTaskHud() {
+  if (!state.ui.taskHud) return;
+  const accepted = [];
+  if (state.currentTask) accepted.push(state.currentTask);
+  const list = accepted.length
+    ? accepted.map((t) => `${t.title ?? t.description} — ${t.status ?? t.state}`)
+    : ["No active tasks yet. Accept something from the mailbox."];
+  const deadlines = accepted
+    .map((t) => (t.deadlineMinutes ? `Due ${formatMinutes(t.deadlineMinutes)}` : ""))
+    .filter(Boolean);
+  const text = `${list.join(" | ")} ${deadlines.length ? `(${deadlines.join(", ")})` : ""}`.trim();
+  if (text !== state.taskHudText) {
+    state.taskHudText = text;
+    state.ui.taskHud.textContent = text;
+  }
 }
 
 function updateButtonStates() {
   if (state.ui.btnStart && state.ui.btnPause) {
-    state.ui.btnStart.classList.toggle("btn-active", state.running);
-    state.ui.btnPause.classList.toggle("btn-active", !state.running);
+    state.ui.btnStart.classList.toggle("btn-active", state.timeMode === "normal");
+    state.ui.btnPause.classList.toggle("btn-active", state.timeMode === "paused");
+  }
+  if (state.ui.btnFast) {
+    state.ui.btnFast.classList.toggle("btn-active", state.timeMode === "fast");
   }
 }
 
@@ -343,6 +567,23 @@ function updateGreetHint() {
   if (!hintEl) return;
   const npc = findNearbyNpc();
   const shouldShow = Boolean(npc);
+  hintEl.classList.toggle("hidden", !shouldShow);
+}
+
+function isNearMailbox() {
+  if (!state.mailboxSpot) return true;
+  const centerX = state.mayor.x + state.mayor.width / 2;
+  const centerY = state.mayor.y + state.mayor.height / 2;
+  const mailX = state.mailboxSpot.x * TILE_SIZE + TILE_SIZE / 2;
+  const mailY = state.mailboxSpot.y * TILE_SIZE + TILE_SIZE / 2;
+  const dist = Math.hypot(centerX - mailX, centerY - mailY);
+  return dist < TILE_SIZE * 0.8;
+}
+
+function updateMailboxHint() {
+  const hintEl = state.ui.mailboxHint;
+  if (!hintEl) return;
+  const shouldShow = isNearMailbox();
   hintEl.classList.toggle("hidden", !shouldShow);
 }
 
@@ -359,6 +600,14 @@ function showOverlay() {
 
 function hideOverlay() {
   state.ui.overlay?.classList.add("hidden");
+  if (state.activeOverlay === "summary") {
+    clearTasksForNextDay();
+    setTimeMode("normal");
+  }
+  if (state.activeOverlay === "mailbox") {
+    state.mailboxOpen = false;
+  }
+  state.activeOverlay = null;
 }
 
 function toggleControlsOverlay(forceVisible) {
@@ -376,6 +625,106 @@ function toggleControlsOverlay(forceVisible) {
 }
 
 // ===== Tasks & Mailbox =====
+async function loadMailboxTasks() {
+  const tasks = await loadJsonSafe("oia/data/mailbox_schema_v01/sample_tasks.json", []);
+  const seen = new Set();
+  state.pendingTasks = [];
+  for (const task of tasks) {
+    const normalized = normalizeTask(task);
+    if (!normalized.id || seen.has(normalized.id)) continue;
+    seen.add(normalized.id);
+    state.pendingTasks.push({ ...normalized, status: "new", state: "available", progress: 0 });
+  }
+}
+
+function beginDay() {
+  state.daySummary = null;
+  state.timeMinutes = START_OF_DAY_MINUTES;
+  state.lastHour = Math.floor(state.timeMinutes / 60);
+  state.minuteFraction = 0;
+  state.currentTask = null;
+  state.completedTasks = [];
+  state.pendingTasks = state.pendingTasks.map((t) => ({ ...t, state: "available", status: "new", progress: 0 }));
+  state.summaryShownToday = false;
+  state.summarySnapshot = [];
+  state.activeOverlay = null;
+  state.mailboxOpen = false;
+  applyMap("town", getCurrentMap()?.spawn ?? state.spawnPoint ?? { x: 7, y: 6 });
+  state.mayor.x = (state.spawnPoint?.x ?? 7) * TILE_SIZE;
+  state.mayor.y = (state.spawnPoint?.y ?? 6) * TILE_SIZE;
+  setTimeMode("normal");
+  state.running = true;
+  console.info("Day started");
+}
+
+function endDaySummary() {
+  triggerDailySummary();
+}
+
+function hasTaskId(taskId) {
+  if (!taskId) return false;
+  if (state.currentTask?.id === taskId) return true;
+  if (state.pendingTasks.some((t) => t.id === taskId)) return true;
+  if (state.completedTasks.some((t) => t.id === taskId)) return true;
+  return false;
+}
+
+function getAcceptedTasksSnapshot() {
+  const snapshot = [];
+  const seen = new Set();
+  const maybeAdd = (task) => {
+    if (!task?.id || seen.has(task.id)) return;
+    seen.add(task.id);
+    snapshot.push({ ...task });
+  };
+  if (state.currentTask && (state.currentTask.state === "accepted" || state.currentTask.state === "completed")) {
+    maybeAdd(state.currentTask);
+  }
+  for (const task of state.completedTasks) {
+    maybeAdd(task);
+  }
+  return snapshot;
+}
+
+function clearTasksForNextDay() {
+  state.currentTask = null;
+  state.completedTasks = [];
+  state.pendingTasks = state.pendingTasks.map((t) => ({ ...t, state: "available", status: "new", progress: 0 }));
+  state.mailboxIndex = 0;
+  state.summarySnapshot = [];
+  state.day += 1;
+  state.summaryShownToday = false;
+  state.timeMinutes = START_OF_DAY_MINUTES;
+  state.lastHour = Math.floor(state.timeMinutes / 60);
+  state.minuteFraction = 0;
+}
+
+function showDailySummary(snapshot) {
+  state.summarySnapshot = snapshot.map((task) => ({ ...task }));
+  state.activeOverlay = "summary";
+  state.mailboxOpen = false;
+  setTimeMode("paused");
+  if (state.ui.overlayTitle) state.ui.overlayTitle.textContent = `Daily Summary — Day ${state.day}`;
+  if (state.ui.overlayBody) {
+    const lines = [`Accepted Tasks: ${snapshot.length}`];
+    snapshot.forEach((task, idx) => {
+      const title = task.title ?? task.body ?? "Task";
+      lines.push(`${idx + 1}. ${title}`);
+    });
+    state.ui.overlayBody.textContent = lines.join("\n");
+  }
+  setOverlayButtons({ acceptVisible: false, completeVisible: false });
+  setNavVisibility(false);
+  showOverlay();
+}
+
+function triggerDailySummary() {
+  if (state.summaryShownToday) return;
+  state.summaryShownToday = true;
+  const snapshot = getAcceptedTasksSnapshot();
+  showDailySummary(snapshot);
+}
+
 function setOverlayButtons({ acceptVisible, acceptDisabled = false, completeVisible, completeDisabled = false }) {
   if (state.ui.btnAccept) {
     state.ui.btnAccept.style.display = acceptVisible ? "inline-block" : "none";
@@ -415,6 +764,10 @@ function buildOverlayLines(task, tasksLength, note) {
   lines.push(task.body ?? "");
   lines.push(`From: ${task.from}`);
   lines.push(`Reward: ${task.reward}`);
+  if (task.building) lines.push(`Building: ${task.building}`);
+  if (task.deadlineMinutes !== null && task.deadlineMinutes !== undefined) {
+    lines.push(`Deadline: ${formatMinutes(task.deadlineMinutes)}`);
+  }
   lines.push(`Goal: ${task.goal}`);
   lines.push(`Type: ${task.type}`);
   lines.push(`Progress: ${task.progress ?? 0}/${task.goal}`);
@@ -451,6 +804,9 @@ function onNextTaskClicked() {
 }
 
 function openMailboxPanel(note = "", options = {}) {
+  if (state.activeOverlay === "summary") return;
+  state.activeOverlay = "mailbox";
+  state.mailboxOpen = true;
   const playSound = options.playSound !== false;
   toggleControlsOverlay(false);
   if (playSound) {
@@ -515,6 +871,7 @@ function tryCompleteTask() {
   }
 
   state.currentTask.state = "completed";
+  state.currentTask.status = "completed";
   state.currentTask.progress = state.currentTask.goal;
 
   state.stats.budget += state.currentTask.reward ?? 0;
@@ -537,6 +894,11 @@ function onAcceptClicked() {
     return;
   }
 
+  if (state.completedTasks.some((t) => t.id === task.id)) {
+    openMailboxPanel("Task already completed today.", { playSound: false });
+    return;
+  }
+
   if (state.currentTask && state.currentTask.state === "accepted" && state.currentTask.id !== task.id) {
     openMailboxPanel("You already have an active task. Complete it before accepting another.", { playSound: false });
     return;
@@ -546,6 +908,7 @@ function onAcceptClicked() {
   if (!state.currentTask || replaceCompleted || (state.currentTask && state.currentTask.id === task.id && state.currentTask.state !== "accepted")) {
     task.progress = task.progress ?? 0;
     task.state = "accepted";
+    task.status = "accepted";
     state.currentTask = task;
     const pendingIndex = state.pendingTasks.findIndex((t) => t.id === task.id);
     if (pendingIndex >= 0) {
@@ -571,20 +934,31 @@ function onCloseClicked() {
 }
 
 function onMailboxClicked() {
+  if (state.mailboxOpen && state.activeOverlay === "mailbox" && !state.ui.overlay?.classList.contains("hidden")) {
+    return;
+  }
+  if (!isNearMailbox()) {
+    openMailboxPanel("Walk up to the mailbox to check for tasks.", { playSound: false });
+    return;
+  }
   openMailboxPanel();
 }
 
 // ===== Input Handling =====
 function onStartClicked() {
-  state.running = true;
-  updateButtonStates();
-  updateHudStats();
+  beginDay();
 }
 
 function onPauseClicked() {
-  state.running = false;
-  updateButtonStates();
-  updateHudStats();
+  setTimeMode("paused");
+}
+
+function onFastClicked() {
+  setTimeMode("fast");
+}
+
+function onEndDayClicked() {
+  endDaySummary();
 }
 
 function onOptionsClicked() {
@@ -592,22 +966,35 @@ function onOptionsClicked() {
 }
 
 function onKeyDown(event) {
-  if (event.code in keys) {
-    keys[event.code] = true;
+  const code = event.code || event.key;
+  if (code in keys) {
+    keys[code] = true;
+    if (code.startsWith("Arrow")) {
+      event.preventDefault();
+    }
   }
-  switch (event.code) {
+  switch (code) {
     case "Space":
       event.preventDefault();
       greetAttempt();
       break;
     case "KeyM":
       event.preventDefault();
-      openMailboxPanel();
+      if (state.mailboxOpen && state.activeOverlay === "mailbox" && !state.ui.overlay?.classList.contains("hidden")) {
+        break;
+      }
+      if (isNearMailbox()) {
+        openMailboxPanel();
+      } else {
+        openMailboxPanel("Move closer to the mailbox to read letters.", { playSound: false });
+      }
       break;
     case "KeyP":
-      state.running = !state.running;
-      updateButtonStates();
-      updateHudStats();
+      if (state.timeMode === "paused") {
+        setTimeMode("normal");
+      } else {
+        setTimeMode("paused");
+      }
       break;
     case "KeyC":
       event.preventDefault();
@@ -624,8 +1011,9 @@ function onKeyDown(event) {
 }
 
 function onKeyUp(event) {
-  if (event.code in keys) {
-    keys[event.code] = false;
+  const code = event.code || event.key;
+  if (code in keys) {
+    keys[code] = false;
   }
 }
 
@@ -636,6 +1024,7 @@ function findNearbyNpc(radius = GREET_RADIUS) {
   let closestDistSq = Number.POSITIVE_INFINITY;
 
   for (const npc of state.npcs) {
+    if (npc.map && npc.map !== state.currentMapKey) continue;
     const dx = npc.x - mayorCenterX;
     const dy = npc.y - mayorCenterY;
     const distSq = dx * dx + dy * dy;
@@ -718,34 +1107,31 @@ function computeTileColor(tile, row, col) {
     const ripple = noise * 0.06;
     return adjustBrightness(tilePalette.waterMid, depthFactor + ripple);
   }
+  if (tile === tileLegend.interior) {
+    return "#1b2f3a";
+  }
   const grassLift = noise * 0.1;
   return adjustBrightness(tilePalette.grassBase, grassLift);
 }
 
-function buildWorldTiles() {
+function buildWorldTiles(mapOverride = null) {
   if (!state.canvas) return;
-  gridCols = Math.floor(state.canvas.width / TILE_SIZE);
-  gridRows = Math.floor(state.canvas.height / TILE_SIZE);
-  worldTiles = Array.from({ length: gridRows }, () => Array.from({ length: gridCols }, () => 0));
+  const map = mapOverride ?? getCurrentMap();
+  if (map) {
+    gridCols = map.cols ?? gridCols;
+    gridRows = map.rows ?? gridRows;
+  } else {
+    gridCols = Math.floor(state.canvas.width / TILE_SIZE);
+    gridRows = Math.floor(state.canvas.height / TILE_SIZE);
+  }
+
+  worldTiles = Array.from({ length: gridRows }, (_, r) => {
+    if (map?.tiles?.[r]) return [...map.tiles[r]];
+    return Array.from({ length: gridCols }, () => 0);
+  });
   worldTileColors = Array.from({ length: gridRows }, () => Array.from({ length: gridCols }, () => tilePalette.grassBase));
   shorelineMask = Array.from({ length: gridRows }, () => Array.from({ length: gridCols }, () => 0));
   groundDetails = [];
-
-  const midRow = Math.floor(gridRows / 2);
-  for (let col = 0; col < gridCols; col += 1) {
-    worldTiles[midRow][col] = 1;
-  }
-
-  const verticalCol = Math.floor(gridCols / 2) - 1;
-  for (let row = 1; row < midRow + 2; row += 1) {
-    worldTiles[row][verticalCol] = 1;
-  }
-
-  for (let row = gridRows - 2; row < gridRows; row += 1) {
-    for (let col = 1; col < 3; col += 1) {
-      worldTiles[row][col] = 2;
-    }
-  }
 
   for (let row = 0; row < gridRows; row += 1) {
     for (let col = 0; col < gridCols; col += 1) {
@@ -759,7 +1145,7 @@ function buildWorldTiles() {
         groundDetails.push({ type: "pebble", x: cx, y: cy, size: 2 + seededNoise(row, col, 3) * 3, alpha: 0.25 });
       } else if (tile === 0 && baseNoise < -0.55) {
         groundDetails.push({ type: "moss", x: cx, y: cy, size: 6 + seededNoise(row, col, 4) * 5, alpha: 0.18 });
-      } else if (tile !== 2 && Math.abs(baseNoise) > 0.35 && Math.abs(baseNoise) < 0.5) {
+      } else if (tile !== 2 && tile !== tileLegend.interior && Math.abs(baseNoise) > 0.35 && Math.abs(baseNoise) < 0.5) {
         groundDetails.push({ type: "blade", x: cx, y: cy, size: 6 + seededNoise(row, col, 5) * 4, alpha: 0.28 });
       }
     }
@@ -784,7 +1170,26 @@ function buildWorldTiles() {
   }
 }
 
-function buildBuildings() {
+function buildBuildings(mapOverride = null) {
+  const map = mapOverride ?? getCurrentMap();
+  if (map?.buildings?.length) {
+    buildings = map.buildings.map((b, idx) => {
+      const kind = b.kind ?? "house";
+      return {
+        key: `${kind}_${idx}`,
+        kind,
+        x: (b.x ?? 0) * TILE_SIZE,
+        y: (b.y ?? 0) * TILE_SIZE,
+        width: (b.w ?? 1) * TILE_SIZE,
+        height: (b.h ?? 1) * TILE_SIZE,
+        wall: b.wall,
+        roof: b.roof,
+        accent: b.accent,
+      };
+    });
+    return;
+  }
+
   buildings = [
     {
       key: "city_hall",
@@ -844,7 +1249,12 @@ function buildBuildings() {
   ];
 }
 
-function buildProps() {
+function buildProps(mapOverride = null) {
+  const map = mapOverride ?? getCurrentMap();
+  if (map?.kind === "interior") {
+    props = [];
+    return;
+  }
   const half = TILE_SIZE / 2;
   const centerPathY = Math.floor(gridRows / 2) * TILE_SIZE + half;
   const centerPathX = Math.floor(gridCols / 2) * TILE_SIZE + half;
@@ -881,6 +1291,146 @@ function buildProps() {
 
   props = props.map((prop, idx) => ({ ...prop, swayPhase: seededNoise(idx, idx, 7) * Math.PI * 2 }));
   props.sort((a, b) => a.y - b.y);
+}
+
+function tileToWorld(position) {
+  if (!position) return { x: 0, y: 0, map: state.currentMapKey };
+  return {
+    x: position.x * TILE_SIZE + TILE_SIZE / 2,
+    y: position.y * TILE_SIZE + TILE_SIZE / 2,
+    map: position.map ?? state.currentMapKey,
+  };
+}
+
+function npcTargetForState(npc, stateName) {
+  if (!npc) return tileToWorld(null);
+  if (stateName === "work") return tileToWorld(npc.job);
+  if (stateName === "social") return tileToWorld(npc.social);
+  if (stateName === "sleep") return tileToWorld(npc.sleep);
+  return tileToWorld(npc.home);
+}
+
+function updateNpcStateFromSchedule(npc) {
+  const schedule = state.npcRules.schedule?.default_day ?? [];
+  const nowMinutes = state.timeMinutes % (24 * 60);
+  let desired = "idle";
+  for (const block of schedule) {
+    const start = parseClockToMinutes(block.start);
+    const end = parseClockToMinutes(block.end);
+    if (nowMinutes >= start && nowMinutes < end) {
+      desired = block.state ?? "idle";
+      break;
+    }
+  }
+
+  if (npc.state !== desired) {
+    npc.state = desired;
+    const target = npcTargetForState(npc, desired);
+    npc.target = target;
+    npc.map = target.map;
+    console.info(`NPC ${npc.name} state -> ${desired}`);
+  }
+}
+
+function moveNpcTowardsTarget(npc, deltaMs) {
+  if (!npc.target) return;
+  const speed = (state.npcRules.movement?.maxStep ?? 1) * 40;
+  const deltaSeconds = deltaMs / 1000;
+  const dx = npc.target.x - npc.x;
+  const dy = npc.target.y - npc.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 1) {
+    npc.x = npc.target.x;
+    npc.y = npc.target.y;
+    return;
+  }
+  const step = Math.min(dist, speed * deltaSeconds);
+  npc.x += (dx / dist) * step;
+  npc.y += (dy / dist) * step;
+}
+
+function updateNpcSchedules(deltaMs) {
+  if (state.isPaused || state.timeSpeed <= 0 || !state.running) return;
+  const scaledDelta = deltaMs * state.timeSpeed;
+  for (const npc of state.npcs) {
+    updateNpcStateFromSchedule(npc);
+    moveNpcTowardsTarget(npc, scaledDelta);
+  }
+}
+
+async function loadNpcData() {
+  const roster = (await loadJsonSafe("oia/data/npc_starter_pack_v01/npc_roster.json", [])) ?? [];
+  state.npcRules.schedule = await loadJsonSafe("oia/data/npc_starter_pack_v01/npc_scheduler.json", {});
+  state.npcRules.behavior = await loadJsonSafe("oia/data/npc_starter_pack_v01/npc_behavior_tree.json", {});
+  state.npcRules.movement = await loadJsonSafe("oia/data/npc_starter_pack_v01/movement_rules.json", {});
+  state.npcRules.interactions = await loadJsonSafe("oia/data/npc_starter_pack_v01/interaction_rules.json", {});
+
+  state.npcs = roster.map((npc, idx) => {
+    const start = tileToWorld(npc.home ?? { x: 0, y: 0, map: "town" });
+    return {
+      id: npc.id ?? `npc${idx}`,
+      name: npc.name ?? `Citizen ${idx + 1}`,
+      species: npc.species ?? "default",
+      map: start.map,
+      x: start.x,
+      y: start.y,
+      radius: NPC_RADIUS,
+      bobPhase: idx * 0.4,
+      state: "idle",
+      job: npc.job,
+      home: npc.home,
+      social: npc.social,
+      sleep: npc.sleep,
+      target: start,
+    };
+  });
+
+  spreadNpcStarts();
+}
+
+function spreadNpcStarts() {
+  if (!Array.isArray(state.npcs)) return;
+  const claimMap = new Set();
+  const isBlocked = (mapData, tileX, tileY) => {
+    if (!mapData) return false;
+    const col = mapData?.collision?.[tileY]?.[tileX];
+    return col === 1;
+  };
+
+  const findSpot = (mapKey, mapData, baseX, baseY) => {
+    const cols = mapData?.cols ?? gridCols ?? 16;
+    const rows = mapData?.rows ?? gridRows ?? 9;
+    const maxRadius = Math.max(cols, rows);
+    for (let radius = 0; radius <= maxRadius; radius += 1) {
+      for (let dy = -radius; dy <= radius; dy += 1) {
+        for (let dx = -radius; dx <= radius; dx += 1) {
+          const tileX = clamp(baseX + dx, 0, cols - 1);
+          const tileY = clamp(baseY + dy, 0, rows - 1);
+          const key = `${mapKey}:${tileX}:${tileY}`;
+          if (claimMap.has(key)) continue;
+          if (isBlocked(mapData, tileX, tileY)) continue;
+          claimMap.add(key);
+          return { tileX, tileY };
+        }
+      }
+    }
+    return { tileX: clamp(baseX, 0, cols - 1), tileY: clamp(baseY, 0, rows - 1) };
+  };
+
+  for (const npc of state.npcs) {
+    const mapKey = npc.home?.map ?? npc.map ?? state.currentMapKey;
+    const mapData = state.maps?.[mapKey] ?? state.maps?.town ?? getCurrentMap();
+    const cols = mapData?.cols ?? gridCols ?? 16;
+    const rows = mapData?.rows ?? gridRows ?? 9;
+    const baseTileX = clamp(Math.round(npc.home?.x ?? (npc.x - TILE_SIZE / 2) / TILE_SIZE), 0, cols - 1);
+    const baseTileY = clamp(Math.round(npc.home?.y ?? (npc.y - TILE_SIZE / 2) / TILE_SIZE), 0, rows - 1);
+
+    const chosen = findSpot(mapKey, mapData, baseTileX, baseTileY);
+    npc.map = mapKey;
+    npc.x = chosen.tileX * TILE_SIZE + TILE_SIZE / 2;
+    npc.y = chosen.tileY * TILE_SIZE + TILE_SIZE / 2;
+    npc.target = npc.target ?? { x: npc.x, y: npc.y, map: mapKey };
+  }
 }
 
 function initNpcs() {
@@ -1803,6 +2353,7 @@ function drawNpcSprite(npc) {
 function drawNpcs() {
   if (!state.ctx) return;
   for (const npc of state.npcs) {
+    if (npc.map && npc.map !== state.currentMapKey) continue;
     drawNpcSprite(npc);
   }
 }
@@ -2019,8 +2570,8 @@ function drawEdgeVignette() {
   const cy = state.canvas.height / 2;
   const radius = Math.sqrt(cx * cx + cy * cy) * 1.2;
   const gradient = ctx.createRadialGradient(cx, cy, radius * 0.38, cx, cy, radius);
-  gradient.addColorStop(0.22, "rgba(0,0,0,0)");
-  gradient.addColorStop(1, "rgba(0,0,0,0.12)");
+  gradient.addColorStop(0.22, "rgba(0, 40, 46, 0)");
+  gradient.addColorStop(1, "rgba(4, 51, 60, 0.16)");
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, state.canvas.width, state.canvas.height);
 }
@@ -2088,6 +2639,20 @@ function applyScreenShake(deltaMs) {
 }
 
 function collidesWithBuildings(x, y, width, height) {
+  const points = [
+    { x, y },
+    { x: x + width, y },
+    { x, y: y + height },
+    { x: x + width, y: y + height },
+  ];
+  for (const p of points) {
+    const tileX = Math.floor(p.x / TILE_SIZE);
+    const tileY = Math.floor(p.y / TILE_SIZE);
+    if (state.collisionGrid?.[tileY]?.[tileX]) {
+      return true;
+    }
+  }
+
   for (const b of buildings) {
     const overlapX = x < b.x + b.width && x + width > b.x;
     const overlapY = y < b.y + b.height && y + height > b.y;
@@ -2100,6 +2665,7 @@ function collidesWithBuildings(x, y, width, height) {
 
 function updateMayor(deltaMs) {
   if (!state.canvas) return;
+  state.doorCooldown = Math.max(0, state.doorCooldown - deltaMs);
   const deltaSeconds = deltaMs / 1000;
   let dx = 0;
   let dy = 0;
@@ -2141,6 +2707,14 @@ function updateMayor(deltaMs) {
   if (movingMagnitude > 1) {
     state.mayor.walkPhase = (state.mayor.walkPhase + deltaSeconds * 5.4) % (Math.PI * 2);
   }
+
+  const tileX = Math.floor((state.mayor.x + state.mayor.width / 2) / TILE_SIZE);
+  const tileY = Math.floor((state.mayor.y + state.mayor.height / 2) / TILE_SIZE);
+  const door = findDoorAt(tileX, tileY);
+  if (door && state.doorCooldown <= 0) {
+    state.doorCooldown = 400;
+    warpToDoor(door);
+  }
 }
 
 // ===== Render & Game Loop =====
@@ -2161,9 +2735,31 @@ function render() {
   drawChatBubbles();
   state.ctx.restore();
 
+  drawUnderwaterAtmosphere();
   drawEdgeVignette();
   drawPixelGrid();
   drawScanlines();
+}
+
+function drawUnderwaterAtmosphere() {
+  if (!state.ctx || !state.canvas) return;
+  const ctx = state.ctx;
+  const { width, height } = state.canvas;
+  ctx.save();
+  const ambient = ctx.createLinearGradient(0, 0, 0, height);
+  ambient.addColorStop(0, "rgba(58, 152, 175, 0.18)");
+  ambient.addColorStop(1, "rgba(12, 58, 76, 0.32)");
+  ctx.globalCompositeOperation = "soft-light";
+  ctx.fillStyle = ambient;
+  ctx.fillRect(0, 0, width, height);
+
+  const warmGlow = ctx.createRadialGradient(width * 0.75, height * 0.28, 32, width * 0.75, height * 0.28, width * 0.68);
+  warmGlow.addColorStop(0, "rgba(255, 214, 186, 0.24)");
+  warmGlow.addColorStop(1, "rgba(255, 214, 186, 0)");
+  ctx.globalCompositeOperation = "screen";
+  ctx.fillStyle = warmGlow;
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
 }
 
 function gameLoop(timestamp) {
@@ -2177,12 +2773,10 @@ function gameLoop(timestamp) {
   state.lastFrameTimestamp = timestamp;
   state.lastDeltaMs = deltaMs;
 
-  if (state.running) {
-    updateTime(deltaMs);
-  }
-
+  updateNpcSchedules(deltaMs);
   updateMayor(deltaMs);
   updateGreetHint();
+  updateMailboxHint();
   render();
   updateHudStats();
 
@@ -2196,6 +2790,12 @@ function setupUI() {
   }
   if (state.ui.btnPause) {
     state.ui.btnPause.addEventListener("click", onPauseClicked);
+  }
+  if (state.ui.btnFast) {
+    state.ui.btnFast.addEventListener("click", onFastClicked);
+  }
+  if (state.ui.btnEndDay) {
+    state.ui.btnEndDay.addEventListener("click", onEndDayClicked);
   }
   if (state.ui.btnOptions) {
     state.ui.btnOptions.addEventListener("click", onOptionsClicked);
@@ -2247,11 +2847,9 @@ async function init() {
   }
 
   loadSfx();
-
-  state.pendingTasks = (state.manifest?.mailbox_tasks ?? []).map((task) => {
-    const normalized = normalizeTask(task);
-    return { ...normalized, progress: 0, state: "available" };
-  });
+  await loadMapData();
+  await loadMailboxTasks();
+  await loadNpcData();
 
   state.ui.hud = document.getElementById("hud");
   state.ui.stats = document.getElementById("stats");
@@ -2260,7 +2858,9 @@ async function init() {
   state.ui.overlayBody = document.getElementById("overlayBody");
   state.ui.btnStart = document.getElementById("btnStart");
   state.ui.btnPause = document.getElementById("btnPause");
+  state.ui.btnFast = document.getElementById("btnFast");
   state.ui.btnMailbox = document.getElementById("btnMailbox");
+  state.ui.btnEndDay = document.getElementById("btnEndDay");
   state.ui.btnOptions = document.getElementById("btnOptions");
   state.ui.btnControls = document.getElementById("btnControls");
   state.ui.btnPrevTask = document.getElementById("btnPrevTask");
@@ -2272,19 +2872,21 @@ async function init() {
   state.ui.overlayPanel = state.ui.overlay?.querySelector?.(".panel") ?? null;
   state.ui.btnCloseControls = document.getElementById("btnCloseControls");
   state.ui.greetHint = document.getElementById("greetHint");
+  state.ui.mailboxHint = document.getElementById("mailboxHint");
+  state.ui.taskHud = document.getElementById("taskHud");
 
   state.canvas = document.getElementById("game");
   state.ctx = state.canvas ? state.canvas.getContext("2d") : null;
 
-  buildWorldTiles();
-  buildBuildings();
-  buildProps();
-  initNpcs();
+  applyMap("town", state.maps.town?.spawn ?? { x: 7, y: 6 });
+  state.mayor.x = (state.spawnPoint?.x ?? 7) * TILE_SIZE;
+  state.mayor.y = (state.spawnPoint?.y ?? 6) * TILE_SIZE;
 
   setupUI();
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
   state.loopStarted = true;
+  beginDay();
   window.requestAnimationFrame(gameLoop);
 }
 

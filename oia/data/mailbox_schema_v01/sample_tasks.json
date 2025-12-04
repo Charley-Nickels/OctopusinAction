@@ -1,0 +1,26 @@
+[
+  {
+    "task_id": "t001",
+    "type": "greet",
+    "requester": "City Hall Clerk",
+    "building": "city_hall",
+    "priority": 1,
+    "posted_at": "09:00",
+    "deadline": "17:00",
+    "description": "Welcome to town. Greet two citizens before the workday ends.",
+    "status": "new",
+    "reward": 5
+  },
+  {
+    "task_id": "t002",
+    "type": "delivery",
+    "requester": "Vendor",
+    "building": "shop",
+    "priority": 2,
+    "posted_at": "10:00",
+    "deadline": "18:00",
+    "description": "Drop off a notice at the shop counter.",
+    "status": "new",
+    "reward": 6
+  }
+]
